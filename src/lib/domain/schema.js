@@ -1,0 +1,57 @@
+import cities from "../malaysia-cities.json";
+export { cities };
+import options from "../official-options.json";
+export { options };
+export const PROFILE_FIELDS = [
+  "name",
+  "passportNo",
+  "birthDate",
+  "nationality",
+  "birthPlace",
+  "sex",
+  "passportExpiry",
+  "email",
+  "phoneCountry",
+  "phone",
+];
+export const TRIP_FIELDS = [
+  "arrival",
+  "departure",
+  "transportNo",
+  "travelMode",
+  "embarkation",
+  "accommodationKind",
+  "address1",
+  "address2",
+  "state",
+  "city",
+  "postcode",
+];
+export const emptyProfile = () =>
+  Object.fromEntries(PROFILE_FIELDS.map((key) => [key, ""]));
+export const emptyTrip = () =>
+  Object.fromEntries(TRIP_FIELDS.map((key) => [key, ""]));
+export const STATES = [
+  "queued",
+  "filling",
+  "awaiting_verification",
+  "submitting",
+  "outcome_unknown",
+  "confirmed",
+  "blocked",
+  "cancelled",
+];
+export const stateLabels = {
+  queued: "Dalam antrean",
+  filling: "Mengisi formulir",
+  awaiting_verification: "Selesaikan puzzle",
+  submitting: "Klik tercatat",
+  outcome_unknown: "Perlu diperiksa",
+  confirmed: "Dikonfirmasi pengguna",
+  blocked: "Terhenti",
+  cancelled: "Dibatalkan",
+};
+export const OFFICIAL_URL =
+  "https://imigresen-online.imi.gov.my/mdac/main?registerMain";
+export const CHECK_URL =
+  "https://imigresen-online.imi.gov.my/mdac/register?viewRegistration";

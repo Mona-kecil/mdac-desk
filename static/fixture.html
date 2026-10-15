@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'none'; img-src 'self' data:">
+<title>MDAC Desk · Formulir uji lokal</title>
+<style>
+body{font:16px system-ui;margin:0;background:#f6f4ed;color:#15283a}main{max-width:980px;margin:40px auto;padding:24px}h1{font-size:32px}p{line-height:1.6}form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;background:white;padding:24px;border:1px solid #bcc8c5;border-radius:12px}label{display:grid;gap:6px;font-size:13px}input,select,button{font:inherit;padding:10px;border:1px solid #9aaead;border-radius:6px;min-width:0}button,#submit{cursor:pointer;background:#12685d;color:white}#captcha,.wide{grid-column:1/-1}.sliderContainer{position:relative;height:56px;background:#e5ebe8;max-width:400px;margin-top:16px;touch-action:none;border:2px solid #7a918e;border-radius:8px}.slider{width:48px;height:48px;position:absolute;left:2px;top:2px;background:#12685d;color:white;display:grid;place-content:center;cursor:grab;touch-action:none;border-radius:4px}.target{position:absolute;left:290px;width:48px;height:48px;top:2px;border:2px dashed #12685d;box-sizing:border-box}.sliderContainer_success{background:#c3e5d0}#events{white-space:pre-wrap;background:#142838;color:#e4efec;padding:20px;border-radius:8px;font-size:13px}#submit{width:180px}@media(max-width:700px){form{grid-template-columns:1fr}main{margin:0;padding:18px}}
+</style>
+</head>
+<body><main>
+<p>MDAC DESK / UJI LOKAL</p><h1>Uji pengisian dan puzzle</h1>
+<p>Halaman sintetis ini memakai adapter produksi. Tidak ada permintaan ke situs pemerintah. Tekan Isi data uji, lalu geser kotak hijau ke kotak putus-putus. Submit sudah aktif sejak awal dan tidak cukup untuk memicu klik.</p>
+<button id="fill" type="button">Isi data uji</button><p id="status" role="status">Belum dimulai.</p>
+<form id="fixtureForm"><div id="captcha"><strong>Puzzle uji lokal</strong><p>Geser kotak hijau ke sasaran di kanan.</p><div class="sliderContainer"><div class="target"></div><div class="slider" role="img" aria-label="Kotak yang dapat digeser">→</div></div></div><input id="submit" type="submit" value="Submit uji lokal"></form>
+<h2>Jurnal peristiwa</h2><pre id="events">Belum ada peristiwa.</pre>
+<script type="module">
+import { createAdapter } from './fixture-adapter.js';
+const form = document.getElementById('fixtureForm');
+const fields = ['name','passNo','dob','nationality','pob','sex','passExpDte','email','confirmEmail','region','mobile','arrDt','depDt','vesselNm','trvlMode','embark','accommodationStay','accommodationAddress1','accommodationAddress2','accommodationState','accommodationCity','accommodationPostcode'];
+const selects = {nationality:['IDN'],pob:['IDN'],sex:['1'],region:['62','60'],trvlMode:['1'],embark:['IDN'],accommodationStay:['01'],accommodationState:['14'],accommodationCity:[]};
+for (const id of fields) {
+  const label = document.createElement('label'); label.textContent = id;
+  const element = document.createElement(id in selects ? 'select' : 'input'); element.id = id; element.name = id;
+  if (id in selects) element.innerHTML = '<option value="">Pilih</option>' + selects[id].map(value => `<option value="${value}">${value}</option>`).join('');
+  label.append(element); form.insertBefore(label, document.getElementById('captcha'));
+}
+for (const id of ['nationality','pob']) document.getElementById(id).addEventListener('change', () => setTimeout(() => {
+  document.getElementById('region').innerHTML = '<option value="60">60 default</option><option value="62">62 Indonesia</option>';
+}, 50));
+document.getElementById('accommodationState').addEventListener('change', () => setTimeout(() => {
+  document.getElementById('accommodationCity').innerHTML = '<option value="">Pilih</option><option value="KUL">Kuala Lumpur</option>';
+}, 60));
+document.getElementById('accommodationCity').addEventListener('change', () => setTimeout(() => {
+  document.getElementById('accommodationPostcode').outerHTML = '<input id="accommodationPostcode" name="accommodationPostcode" value="50000">';
+}, 50));
+const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kuala_Lumpur',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+window.fixtureSubmission = {id:crypto.randomUUID(),state:'queued',profileSnapshot:{name:'TEST TRAVELLER',passportNo:'000123456',birthDate:'1990-01-02',nationality:'IDN',birthPlace:'IDN',sex:'1',passportExpiry:'2030-01-01',email:'test@example.invalid',phoneCountry:'62',phone:'08123456789'},tripSnapshot:{arrival:today,departure:today,transportNo:'TEST 123',travelMode:'1',embarkation:'IDN',accommodationKind:'01',address1:'TEST HOTEL ROAD',address2:'',state:'14',city:'KUL',postcode:'05000'}};
+const history = [];
+const emit = async (type, detail) => {history.push({type,detail}); document.getElementById('events').textContent = JSON.stringify(history,null,2); document.getElementById('status').textContent = detail || type;};
+let nativeClicks = 0;
+form.addEventListener('submit', event => {event.preventDefault(); nativeClicks++; document.body.dataset.nativeClicks = String(nativeClicks);});
+const slider = document.querySelector('.slider'); const track = document.querySelector('.sliderContainer'); let drag;
+slider.addEventListener('pointerdown', event => {if(!event.isTrusted)return; track.classList.remove('sliderContainer_success'); drag = event.clientX; slider.setPointerCapture(event.pointerId);});
+slider.addEventListener('pointermove', event => {if(drag == null || !event.isTrusted)return; slider.style.left = `${Math.max(2, Math.min(330,event.clientX-drag+2))}px`;});
+slider.addEventListener('pointerup', event => {if(drag == null || !event.isTrusted)return; if(Math.abs(event.clientX-drag-288)<18) track.classList.add('sliderContainer_success'); drag = null;});
+document.getElementById('fill').addEventListener('click', async event => {
+  event.target.disabled = true;
+  const adapter = createAdapter({document,submission:window.fixtureSubmission,emit,authorizeClick:async()=>{await emit('click_intent','Niat klik disimpan pada jurnal uji.'); await new Promise(resolve=>setTimeout(resolve,100));}});
+  await adapter.start();
+});
+if(new URLSearchParams(location.search).has('official')) {document.getElementById('fill').disabled=true;document.getElementById('status').textContent='Fixture terikat pada companion uji.';}
+</script>
+</main></body></html>
