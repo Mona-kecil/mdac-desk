@@ -14,7 +14,8 @@
     "prebuild": "node scripts/copy-ocr-assets.mjs && node scripts/build-companion.mjs",
     "predev": "node scripts/copy-ocr-assets.mjs && node scripts/build-companion.mjs",
     "test:extension": "node tests/extension-e2e.mjs",
-    "test:ocr": "node scripts/copy-ocr-assets.mjs && node scripts/test-ocr.mjs"
+    "test:ocr": "node scripts/copy-ocr-assets.mjs && node scripts/test-ocr.mjs",
+    "test:ocr:canvas": "node scripts/test-ocr-canvas.mjs"
   },
   "dependencies": {
     "@sveltejs/adapter-static": "4.0.0",
