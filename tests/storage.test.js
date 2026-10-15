@@ -192,3 +192,37 @@ it("rejects snapshot objects in string fields without losing existing data", asy
   await expect(target.restoreBackup(backup)).rejects.toThrow("Snapshot");
   expect(await target.listProfiles()).toEqual([]);
 });
+
+it("blocks a queued identity when a different submission ID has click evidence", async () => {
+  const a = repo();
+  const b = repo();
+  const pa = await a.saveProfile(profile);
+  const pb = await b.saveProfile(profile);
+  const [sa] = await a.queue([pa], trip);
+  const [sb] = await b.queue([pb], { ...trip, address1: "ANOTHER TEST ROAD" });
+  for (const type of ["filling", "awaiting_verification", "click_intent"])
+    await b.appendEvent(sb.id, {
+      id: crypto.randomUUID(),
+      attemptId: sb.id,
+      type,
+      at: new Date().toISOString(),
+    });
+  const backup = await b.exportBackup();
+  await a.restoreBackup(backup);
+  const record = (await a.listSubmissions())[0];
+  expect(record.id).toBe(sa.id);
+  expect(record.state).toBe("outcome_unknown");
+  expect(record.events.at(-1).sourceAttemptId).toBe(sb.id);
+  await expect(
+    a.appendEvent(sa.id, {
+      id: crypto.randomUUID(),
+      attemptId: sa.id,
+      type: "retry",
+      at: new Date().toISOString(),
+    }),
+  ).rejects.toThrow();
+  await a.restoreBackup(backup);
+  expect((await a.listSubmissions())[0].events).toHaveLength(
+    record.events.length,
+  );
+});

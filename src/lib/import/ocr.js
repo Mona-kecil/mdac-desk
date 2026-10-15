@@ -84,12 +84,15 @@ export async function readPassport(file, onProgress = () => {}) {
   const base = new URL("/ocr/", location.origin).href;
   const worker = await createWorker(
     "eng",
-    1,
+    0,
     {
       workerPath: base + "worker.min.js",
       corePath: base,
       langPath: base,
       workerBlobURL: false,
+      legacyCore: true,
+      legacyLang: true,
+      cachePath: "mdac-desk-eng-legacy-v1",
       logger: (message) => onProgress(message.progress || 0),
     },
     { load_system_dawg: "0", load_freq_dawg: "0" },

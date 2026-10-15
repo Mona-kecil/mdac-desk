@@ -59,7 +59,7 @@ export function preflightWorkbook(bytes) {
         throw new Error(
           "Isi workbook melebihi batas ukuran atau jumlah berkas.",
         );
-      return entry.name.endsWith(".xml");
+      return true;
     },
   });
   for (const bytes of Object.values(xml)) {
@@ -68,17 +68,17 @@ export function preflightWorkbook(bytes) {
     let cellCount = 0;
     let maxRow = 0;
     let maxColumn = 0;
-    for (const match of text.matchAll(/<(?:\w+:)?row\b[^>]*>/g)) {
+    for (const match of text.matchAll(/<(?:[A-Za-z_][\w.-]*:)?row\b[^>]*>/g)) {
       rowCount++;
-      const reference = /\br=["']([^"']+)["']/.exec(match[0]);
+      const reference = /\br\s*=\s*["']([^"']+)["']/.exec(match[0]);
       const number = reference ? Number(reference[1]) : rowCount;
       if (!Number.isInteger(number) || number < 1 || number > MAX_ROWS + 1)
         throw new Error("Referensi baris XLSX melebihi batas 1000 penumpang.");
       maxRow = Math.max(maxRow, number);
     }
-    for (const match of text.matchAll(/<(?:\w+:)?c\b[^>]*>/g)) {
+    for (const match of text.matchAll(/<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/g)) {
       cellCount++;
-      const reference = /\br=["']([^"']+)["']/.exec(match[0]);
+      const reference = /\br\s*=\s*["']([^"']+)["']/.exec(match[0]);
       if (reference) {
         const coordinate = /^([A-Z]+)([1-9]\d*)$/.exec(reference[1]);
         if (!coordinate) throw new Error("Referensi sel XLSX tidak valid.");

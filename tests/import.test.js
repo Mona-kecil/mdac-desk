@@ -112,3 +112,20 @@ describe("import bounds before matrix expansion", () => {
     expect(() => parseCSV(Array(102).fill("x").join(","))).toThrow("kolom");
   });
 });
+
+it("preflights uppercase and nonstandard worksheet member names", async () => {
+  const { unzipSync } = await import("fflate");
+  for (const target of ["sheet1.XML", "data.cells"]) {
+    const files = unzipSync(new Uint8Array(await workbook(row).arrayBuffer()));
+    delete files["xl/worksheets/sheet1.xml"];
+    files[`xl/worksheets/${target}`] = strToU8(
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="100000"><c r="J100000" t="inlineStr"><is><t>X</t></is></c></row></sheetData></worksheet>',
+    );
+    files["xl/_rels/workbook.xml.rels"] = strToU8(
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/${target}"/></Relationships>`,
+    );
+    await expect(
+      parseImport(new File([zipSync(files)], "sparse.xlsx")),
+    ).rejects.toThrow("Referensi baris XLSX");
+  }
+});

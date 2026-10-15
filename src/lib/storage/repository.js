@@ -302,8 +302,34 @@ export function createRepository(name = "mdac-desk") {
                 JSON.stringify(raw.profileSnapshot) ||
               JSON.stringify(existing.tripSnapshot) !==
                 JSON.stringify(raw.tripSnapshot)
-            )
+            ) {
+              const click = raw.events.find(
+                (event) =>
+                  event.type === "click_intent" ||
+                  event.type === "backup_conflict",
+              );
+              if (
+                click &&
+                !existing.events.some(
+                  (event) => event.conflictSourceEventId === click.id,
+                )
+              ) {
+                await store.put(
+                  reduceAttempt(existing, {
+                    id: crypto.randomUUID(),
+                    attemptId: existing.id,
+                    type: "backup_conflict",
+                    at: new Date().toISOString(),
+                    conflictClickAt: restored.submittedAt,
+                    conflictSourceEventId: click.id,
+                    sourceAttemptId: raw.id,
+                    detail:
+                      "Cadangan paspor dan tanggal tiba yang sama memuat niat klik. Periksa Check Registration sebelum melanjutkan.",
+                  }),
+                );
+              }
               continue;
+            }
             let merged = existing;
             const incomingIds = new Set(raw.events.map((event) => event.id));
             const common = existing.events.filter(

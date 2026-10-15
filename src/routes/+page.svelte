@@ -467,7 +467,10 @@
         throw new Error(
           "Hubungkan Companion di Panduan & data sebelum menjalankan antrean.",
         );
-      await bridge.start(item);
+      const current = submissions.find((record) => record.id === item.id);
+      if (current?.state !== "queued")
+        throw new Error("Status pengiriman berubah di tab lain. Periksa riwayat sebelum melanjutkan.");
+      await bridge.start(current);
       notify(
         "Formulir resmi dibuka. Selesaikan puzzle di tab MDAC untuk penumpang ini.",
       );
@@ -563,6 +566,7 @@
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     await run(async () => {
+      if (file.size > 32 * 1024 * 1024) throw new Error("Cadangan maksimal 32 MB.");
       const result = await repository.restoreBackup(
         JSON.parse(await file.text()),
       );

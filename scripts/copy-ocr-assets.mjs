@@ -11,7 +11,7 @@ for (const name of await readdir(core))
     await cp(new URL(name, core), new URL(name, destination));
 await cp(
   new URL(
-    "../node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+    "../node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz",
     import.meta.url,
   ),
   new URL("eng.traineddata.gz", destination),
