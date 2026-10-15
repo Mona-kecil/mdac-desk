@@ -6,10 +6,11 @@ import { companionFiles, SOURCE_FILES } from '../extension/package.js';
 const submission = () => ({ id: 'test-attempt', state: 'queued', profileSnapshot: { name: 'TEST PERSON', passportNo: '0001234', birthDate: '1990-01-02', nationality: 'IDN', birthPlace: 'IDN', sex: '1', passportExpiry: '2030-01-02', email: 'test@example.invalid', phoneCountry: '62', phone: '0012345678' }, tripSnapshot: { arrival: '2026-10-15', departure: '2026-10-17', transportNo: 'TEST 1', travelMode: '1', embarkation: 'IDN', accommodationKind: '01', address1: 'TEST HOTEL ROAD', address2: '', state: '14', city: 'KUL', postcode: '05000' } });
 const opened = [];
 afterEach(() => opened.splice(0).forEach(dom => dom.window.close()));
-function fixture({ stale = false, brokenCity = false } = {}) {
+function fixture({ stale = false, brokenCity = false, name = 'TEST PERSON', now = () => new Date('2026-10-15T10:00:00Z') } = {}) {
   const dom = new JSDOM('<form></form>', { url: 'http://localhost/fixture.html' }); opened.push(dom);
   const document = dom.window.document;
-  const values = formValues(submission());
+  const payload = submission(); payload.profileSnapshot.name = name;
+  const values = formValues(payload);
   const selects = new Set(['nationality','pob','sex','region','trvlMode','embark','accommodationStay','accommodationState','accommodationCity']);
   const form = document.querySelector('form');
   for (const [id,value] of Object.entries(values)) {
@@ -22,7 +23,7 @@ function fixture({ stale = false, brokenCity = false } = {}) {
   document.getElementById('accommodationState').addEventListener('change', () => setTimeout(() => {document.getElementById('accommodationCity').innerHTML = brokenCity ? '<option value="OTHER">Other</option>' : '<option value="KUL">Kuala Lumpur</option>';}, 5));
   document.getElementById('accommodationCity').addEventListener('change', () => setTimeout(() => {document.getElementById('accommodationPostcode').outerHTML = '<input id="accommodationPostcode" value="50000">';}, 5));
   const events = []; let authorized = 0;
-  const adapter = createAdapter({document,submission:submission(),now:()=>new Date('2026-10-15T10:00:00Z'),dependencyTimeout:100,emit:async(type,detail)=>events.push({type,detail}),authorizeClick:async()=>{authorized++;}});
+  const adapter = createAdapter({document,submission:payload,now,dependencyTimeout:100,emit:async(type,detail)=>events.push({type,detail}),authorizeClick:async()=>{authorized++;}});
   return {document,adapter,events,get authorized(){return authorized;}};
 }
 
@@ -59,6 +60,27 @@ describe('official adapter', () => {
     test.document.querySelector('.sliderContainer').classList.add('sliderContainer_success');
     await new Promise(resolve=>setTimeout(resolve,5));
     expect(test.authorized).toBe(0); expect(test.adapter.phase).toBe('awaiting_verification');
+  });
+  it('accepts the official uppercase transform and rejects official length limits', async () => {
+    const test=fixture({name:'Test Person'});
+    test.document.getElementById('name').classList.add('uppercase');
+    await test.adapter.start();
+    expect(test.document.getElementById('name').value).toBe('TEST PERSON');
+    const invalid=submission(); invalid.profileSnapshot.passportNo='1234567890123';
+    expect(()=>formValues(invalid)).toThrow('batas resmi 12');
+  });
+  it('checks the arrival window again after filling', async () => {
+    let time=new Date('2026-10-15T10:00:00Z');
+    const test=fixture({now:()=>time}); await test.adapter.start();
+    time=new Date('2026-10-18T10:00:00Z');
+    expect(()=>test.adapter.readback()).toThrow('kedatangan');
+  });
+  it('blocks when a dependency never replaces its options', async () => {
+    const test=fixture();
+    const country=test.document.getElementById('nationality'); country.replaceWith(country.cloneNode(true));
+    await test.adapter.start();
+    expect(test.events.at(-1).type).toBe('blocked');
+    expect(test.events.at(-1).detail).toContain('belum dimuat');
   });
   it('checks the Malaysian date boundary and upper limit', () => {
     expect(()=>assertArrival('2026-10-15',new Date('2026-10-14T15:59:59Z'))).not.toThrow();

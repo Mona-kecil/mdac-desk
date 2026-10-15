@@ -1,4 +1,5 @@
 import { APP_ORIGIN, OFFICIAL_URL, CHANNEL } from './config.js';
+import { assertArrival, formValues } from './adapter.js';
 
 let serial = Promise.resolve();
 const run = work => {
@@ -30,8 +31,14 @@ const append = async (journal, type, detail) => {
 };
 const boundOfficial = (sender, active, attemptId) => originIsOfficial(sender) && active && sender.tab.id === active.officialTabId && sender.documentId === active.documentId && attemptId === active.attemptId;
 const validSubmission = value => {
-  if (!value || typeof value.id !== 'string' || value.id.length > 100 || value.state !== 'queued') return false;
-  return [value.profileSnapshot, value.tripSnapshot].every(snapshot => snapshot && Object.values(snapshot).every(item => typeof item === 'string' || item == null) && JSON.stringify(snapshot).length < 12000);
+  if (!value || typeof value.id !== 'string' || !value.id || value.id.length > 100 || !['queued', 'blocked', 'cancelled'].includes(value.state)) return false;
+  try {
+    formValues(value);
+    assertArrival(value.tripSnapshot.arrival);
+    return true;
+  } catch {
+    return false;
+  }
 };
 async function handle(message, sender) {
   if (!message || message.channel !== CHANNEL || typeof message.command !== 'string') return;
@@ -39,6 +46,19 @@ async function handle(message, sender) {
   const active = journal.active;
   if (originIsApp(sender)) {
     if (message.command === 'hello') {
+      if (active && active.appTabId !== sender.tab.id) {
+        let previous;
+        try { previous = await chrome.tabs.get(active.appTabId); } catch { previous = null; }
+        if (!previous) {
+          for (const entry of journal.events) if (entry.appTabId === active.appTabId) entry.appTabId = sender.tab.id;
+          active.appTabId = sender.tab.id;
+          await save(journal);
+        }
+      }
+      if (active?.appTabId === sender.tab.id && !['blocked', 'cancelled', 'outcome_unknown'].includes(active.phase)) {
+        const { payload } = await chrome.storage.session.get('payload');
+        if (!payload) await append(journal, afterIntent(active) ? 'outcome_unknown' : 'blocked', 'Sesi browser berakhir. Periksa riwayat sebelum melanjutkan.');
+      }
       for (const entry of journal.events) if (entry.appTabId === sender.tab.id) await sendApp(sender.tab.id, { event: entry.event });
       return { connected: true, message: active ? 'Companion memiliki satu proses aktif.' : 'Companion tersambung.', activeAttemptId: active?.attemptId };
     }
@@ -51,9 +71,10 @@ async function handle(message, sender) {
       journal.usedAttempts.push(message.submission.id);
       await save(journal);
       try {
-        const tab = await chrome.tabs.create({ url: OFFICIAL_URL, active: true });
+        const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
         journal.active.officialTabId = tab.id;
         await save(journal);
+        await chrome.tabs.update(tab.id, { url: OFFICIAL_URL });
       } catch {
         await append(journal, 'blocked', 'Tab resmi gagal dibuka.');
       }
@@ -64,7 +85,8 @@ async function handle(message, sender) {
       if (!entry) return { ok: true };
       if (entry.event.type === 'click_intent' && active?.attemptId === entry.event.attemptId) active.clickAcknowledged = true;
       journal.events = journal.events.filter(item => item !== entry);
-      if (active?.attemptId === entry.event.attemptId && ['blocked', 'cancelled', 'outcome_unknown'].includes(entry.event.type) && !journal.events.some(item => item.event.attemptId === active.attemptId)) {
+      if (active?.attemptId === entry.event.attemptId && ['blocked', 'cancelled', 'outcome_unknown'].includes(active.phase) && !journal.events.some(item => item.event.attemptId === active.attemptId)) {
+        if (['blocked', 'cancelled'].includes(active.phase)) journal.usedAttempts = journal.usedAttempts.filter(id => id !== active.attemptId);
         journal.active = null;
         await chrome.storage.session.remove('payload');
       }

@@ -22,6 +22,8 @@ export function formValues(submission) {
     }
   }
   values.confirmEmail = values.email;
+  const limits = { name: 60, passNo: 12, mobile: 12, email: 100, vesselNm: 30, accommodationAddress1: 100, accommodationAddress2: 100 };
+  for (const [id, max] of Object.entries(limits)) if (values[id].length > max) throw new Error(`Nilai ${id} melebihi batas resmi ${max} karakter.`);
   if (values.accommodationAddress1.trim().split(/\s+/).length < 3) throw new Error('Alamat memerlukan setidaknya tiga kata.');
   return values;
 }
@@ -43,6 +45,8 @@ export function createAdapter({ document, submission, emit, authorizeClick, now 
   const set = id => {
     const element = byId(id);
     if (element.tagName === 'SELECT' && !Array.from(element.options).some(option => option.value === values[id])) throw new Error(`Pilihan resmi tidak tersedia: ${id}.`);
+    if (element.classList.contains('uppercase')) values[id] = values[id].toUpperCase();
+    if (element.maxLength >= 0 && values[id].length > element.maxLength) throw new Error(`Nilai ${id} melebihi batas formulir resmi.`);
     element.value = values[id];
     element.dispatchEvent(new win.Event('input', { bubbles: true }));
     element.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -72,10 +76,11 @@ export function createAdapter({ document, submission, emit, authorizeClick, now 
     await emit(type, error.message);
   };
   const clickIfReady = async () => {
-    if (phase !== 'awaiting_verification' || !successful || byId('submit').disabled) return;
-    phase = 'intent';
+    if (phase !== 'awaiting_verification' || !successful) return;
     try {
+      if (byId('submit').disabled) return;
       readback();
+      phase = 'intent';
       await authorizeClick();
       if (disposed) return;
       readback();
