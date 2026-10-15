@@ -1,17 +1,15 @@
-# Batas data dan keamanan
+# Batas data
 
-MDAC Desk menyimpan profil dan riwayat di IndexedDB milik origin aplikasi. Tidak ada akun, basis data server, analitik, atau server unggah dokumen. Situs statis dan aset OCR dimuat dari host aplikasi. Browser pengguna mengirim data ke pemerintah melalui formulir resmi saat companion menekan tombol kirim setelah puzzle.
+Profil, hasil OCR, snapshot pengiriman, dan riwayat tersimpan dalam IndexedDB pada origin aplikasi. Foto diproses dalam worker browser dan tidak disimpan sebagai bagian profil. Aset OCR dimuat dari host aplikasi. Cadangan JSON dan data lokal tidak dienkripsi oleh aplikasi.
 
-Foto paspor tidak masuk IndexedDB. Tesseract.js memproses gambar di worker browser. Aset worker, WASM, dan bahasa disalin dari dependency yang terkunci saat build. Kegagalan OCR menghasilkan draf yang dapat dikoreksi. Checksum MRZ mendeteksi sebagian kesalahan baca dan tidak membuktikan identitas.
+Saat pengguna memilih Kirim, data teks yang ditinjau melewati server untuk mengisi formulir MDAC dalam browser sementara. Foto tidak ikut dikirim. Browser ditutup saat sesi selesai atau setelah 3 menit tanpa aktivitas. VM memiliki batas keras 15 menit. Jika koneksi gateway hilang, proses penutupan VM dapat menunggu batas tersebut. Sesi pengguna tidak dibuat persisten dan tidak di-snapshot.
 
-Profile menyimpan data pribadi yang dapat dipakai ulang. Submission menyimpan profileSnapshot, tripSnapshot, fingerprint kewarganegaraan/paspor/tanggal tiba, dan peristiwa append-only. Satu repository memiliki semua penulisan IndexedDB. Index unik dan transaksi mencegah duplikasi lintas tab. Restore tidak menimpa snapshot riwayat yang sudah ada.
+Blob privat menyimpan penanda hash identitas/perjalanan, hash payload dan pemilik, generasi sesi, ID peristiwa, fase pengiriman, serta waktu kedaluwarsa. Penanda tidak memuat nama, nomor paspor mentah, kontak, foto, atau salinan formulir. Penanda dipertahankan melewati tanggal tiba agar kehilangan sesi tidak membuka pengiriman ulang. Penghapusan operasional dilakukan setelah tanggal tiba ditambah 7 hari dan seluruh izin sesi kedaluwarsa.
 
-Companion menerima protokol dengan versi dan perintah terbatas dari tab aplikasi pada origin yang tercantum dalam ZIP. Aplikasi tidak mengirim JavaScript, selector, atau URL tujuan. Adapter memiliki seluruh selector MDAC. Companion mengikat perintah pada tab aplikasi, tab resmi, dokumen, dan ID percobaan. Satu pekerjaan aktif memiliki satu pemilik jurnal.
+Kunci namespace penanda harus tetap sama antar deployment. Rotasi membutuhkan pencarian dengan kunci lama atau penghentian create selama migrasi. Mengganti kunci tanpa migrasi dapat menghilangkan perlindungan retry.
 
-Extension storage lokal menyimpan jurnal ID dan peristiwa sampai aplikasi menyimpan lalu mengakui penerimaan. Payload profil aktif berada dalam extension session storage. Pemulihan tidak mengulang niat klik. Setelah klik, perubahan halaman tanpa bukti penerimaan menjadi hasil tidak diketahui.
+Server menerima tujuan dan operasi tetap. Pengguna menyelesaikan puzzle resmi melalui gambar browser dan pointer. Niat klik ditulis ke riwayat lokal sebelum ACK. Penanda server dibelanjakan sebelum satu izin klik diberikan ke browser aktif. Gangguan pada tahap ini dapat menghasilkan hasil tidak diketahui walaupun klik belum terjadi. Aplikasi tidak menjanjikan pendaftaran pemerintah tepat satu kali.
 
-Permintaan penyimpanan tetap tidak menjamin retensi browser. Ekspor JSON diperlukan untuk cadangan. Data lokal dan JSON tidak dienkripsi oleh aplikasi. Orang yang mengakses profil browser atau file cadangan dapat membaca data tersebut.
+Klik, navigasi, dan HTTP200 bukan bukti penerimaan. Konfirmasi riwayat berasal dari pengguna setelah memeriksa Check Registration. Hasil yang belum diketahui menahan antrean. Cadangan mempertahankan bukti klik dan konflik; pemulihan tidak menjalankan ulang pengiriman.
 
-Sumber referensi pilihan berasal dari formulir MDAC dan endpoint kota publik yang diperiksa 15 Oktober 2026. Adapter memeriksa pilihan halaman saat mengisi. Dataset lokal membantu pengguna memilih label dan tidak menggantikan pemeriksaan formulir langsung.
-
-Restore memvalidasi jurnal sumber sebelum menggabungkannya. Peristiwa pemulihan lokal tetap tersimpan. Cadangan lebih baru dapat melanjutkan bukti sumber melewati pemulihan itu tanpa menjalankan ulang tindakan browser. Jika dua cabang berbeda dan salah satunya memuat niat klik, aplikasi menambahkan bukti konflik dan menghentikan antrean dengan `outcome_unknown`. Restore menandai proses pengisian yang terputus sebagai `blocked` dan niat klik yang terputus sebagai `outcome_unknown`.
+Jangan memasukkan paspor nyata, foto, token, `.env.local`, atau log sesi ke repository dan laporan pengujian. Gunakan data sintetis dan jangan mengirim formulir uji ke pemerintah.

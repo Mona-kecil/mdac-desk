@@ -1,62 +1,48 @@
 # MDAC Desk
 
-MDAC Desk menyiapkan Malaysia Digital Arrival Card untuk satu atau banyak penumpang. Aplikasi SvelteKit menyimpan profil dan riwayat pengiriman di browser. Chrome companion mengisi tab MDAC resmi. Setiap penumpang menyelesaikan puzzle resmi sebelum companion mencatat niat klik dan menekan tombol kirim sekali.
+Siapkan Malaysia Digital Arrival Card untuk satu atau banyak penumpang. Buka [MDAC Desk](https://mdac-desk.vercel.app), tambah penumpang, isi satu perjalanan bersama, tinjau, lalu pilih Kirim. Selesaikan puzzle resmi dalam aplikasi. Tidak ada ekstensi yang perlu dipasang.
 
-[Source di GitHub](https://github.com/Mona-kecil/mdac-desk). Proyek ini bukan situs pemerintah dan tidak terafiliasi dengan Jabatan Imigresen Malaysia.
+Proyek SvelteKit ini bersifat independen dan tidak terafiliasi dengan Jabatan Imigresen Malaysia. Lisensi MIT.
 
-## Jalankan aplikasi
+## Pemakaian
 
-Gunakan Node.js 22.17 atau lebih baru.
+1. Pilih foto paspor, CSV/XLSX, atau isian manual. OCR berjalan di perangkat. Cocokkan hasil dengan paspor, lalu lengkapi negara kelahiran dan kontak.
+2. Pilih penumpang dan isi perjalanan bersama. Tanggal tiba mengikuti waktu Malaysia, hari ini hingga dua hari berikutnya.
+3. Tinjau semua data, centang izin pengiriman, lalu pilih Kirim.
+4. Selesaikan puzzle resmi untuk penumpang aktif. Verifikasi yang lolos memicu satu pengiriman. Tidak perlu menekan Kirim lagi.
+5. Periksa [Check Registration](https://imigresen-online.imi.gov.my/mdac/register?viewRegistration), lalu catat referensi di riwayat. Lanjutkan penumpang berikutnya setelah hasil diperiksa.
+
+Klik bukan bukti penerimaan. Hasil yang belum diketahui menahan rombongan dan tidak dikirim ulang otomatis. Riwayat membedakan bukti niat klik dari konfirmasi pengguna.
+
+Profil dan riwayat tersimpan di browser. Gunakan **Data & bantuan** untuk ekspor atau pemulihan cadangan. Cadangan JSON memuat data pribadi dalam teks terbuka. Menghapus data situs atau memakai browser lain memisahkan data lokal.
+
+Foto paspor tidak dikirim ke server. Hanya data teks yang ditinjau diproses dalam browser server sementara. Sesi memiliki batas 15 menit. Penanda pengajuan berupa hash tersimpan terpisah untuk mencegah retry yang belum jelas hasilnya. Lihat [batas data](docs/security.md).
+
+## Pengembangan lokal
+
+Gunakan Node.js 24.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Buka alamat localhost yang dicetak Vite. `npm run build` membuat situs statis di `build`. `vercel.json` menetapkan direktori itu untuk Vercel. Aplikasi tidak membutuhkan API key atau variabel lingkungan.
+Input, OCR, profil, dan cadangan bekerja lokal. Untuk pengiriman, operator menghubungkan proyek Vercel dengan Sandbox dan Blob privat, lalu mengisi variabel server di `.env.local` melalui `vercel env pull`. Pengguna aplikasi tidak memerlukan akun atau kunci API.
 
-## Siapkan dan kirim MDAC
+- `MDAC_SESSION_SECRET`. Kunci acak minimal 32 karakter untuk izin sesi.
+- `MDAC_CLAIM_NAMESPACE_SECRET`. Kunci acak terpisah dan tetap untuk penanda pengajuan. Jangan rotasi tanpa migrasi penanda lama.
+- `MDAC_BROWSER_SNAPSHOT_ID`. Image browser bersih dari `npm run browser:image`. Perbarui sebelum kedaluwarsa.
+- Autentikasi Vercel OIDC serta Blob privat yang terhubung, atau `BLOB_READ_WRITE_TOKEN` untuk pengembangan.
 
-1. Tambahkan profil melalui formulir, CSV, XLSX, atau foto paspor. OCR berjalan di browser dengan worker, WASM, dan data bahasa dari origin aplikasi.
-2. Tinjau semua kolom dengan paspor asli. MRZ tidak memuat negara kelahiran, email, atau telepon. Isi kolom tersebut sendiri.
-3. Untuk spreadsheet, unduh template CSV. Simpan nomor paspor dan telepon sebagai teks. Gunakan tanggal `YYYY-MM-DD`. Import menampilkan kesalahan sebelum menyimpan baris yang Anda tinjau.
-4. Pilih penumpang dan isi perjalanan bersama. Tanggal tiba harus hari ini sampai dua hari berikutnya dalam waktu Malaysia.
-5. Unduh ZIP companion melalui **Panduan & data**. Ekstrak ZIP. Buka `chrome://extensions`, aktifkan **Developer mode**, pilih **Load unpacked**, lalu pilih folder hasil ekstrak.
-6. Muat ulang MDAC Desk pada origin tempat ZIP diunduh. Companion dari origin lain tidak dapat mengendalikan antrean ini.
-7. Tinjau snapshot pengiriman lalu mulai antrean. Companion membuka tab pemerintah. Selesaikan puzzle pada tab itu untuk setiap penumpang.
-8. Setelah klik, periksa hasil di situs resmi. Buka [Check Registration](https://imigresen-online.imi.gov.my/mdac/register?viewRegistration). Masukkan paspor, kewarganegaraan, PIN, dan puzzle sesuai permintaan situs.
-9. Masukkan referensi pengakuan atau PIN setelah Anda memeriksa registrasi. Riwayat memberi label **Dikonfirmasi pengguna**. Aplikasi tidak memverifikasi referensi itu ke pemerintah.
+`npm run browser:image` menyiapkan Chromium dan Xvfb sebelum ada data pengguna. Sesi pengguna memakai `persistent:false`; jangan membuat snapshot sesi pengguna. `npm run build` menghasilkan deployment SvelteKit dengan adapter Vercel. Batasi POST `/api/submission-sessions` melalui Vercel Firewall; deployment ini memakai 6 permintaan/menit/IP.
 
-Companion adalah artefak instalasi ZIP, bukan publikasi Chrome Web Store. ZIP mengizinkan origin aplikasi saat unduh dan halaman MDAC resmi. Host lain tidak memperoleh izin.
-
-## Simpan dan pulihkan data
-
-Profil dapat berupa draf. Profil harus lengkap dan ditinjau sebelum masuk antrean. Setiap pengiriman menyimpan snapshot profil dan perjalanan. Edit profil tidak mengubah riwayat.
-
-Gunakan **Ekspor cadangan** pada **Panduan & data** untuk menyimpan JSON. File itu memuat data paspor, kontak, perjalanan, dan riwayat. Simpan di tempat yang Anda lindungi. **Pulihkan cadangan** menggabungkan data tanpa menggandakan identitas profil atau paspor dan tanggal tiba yang sama.
-
-Klik **Minta penyimpanan tetap** untuk meminta browser mempertahankan IndexedDB. Browser menentukan hasil permintaan. Menghapus data situs, menggunakan profil browser lain, atau memakai mode privat dapat menghapus atau memisahkan data. IndexedDB bukan cadangan. Aplikasi menyediakan hapus per catatan dan hapus semua dengan konfirmasi.
-
-## Batas pengiriman
-
-Klik tombol kirim bukan bukti penerimaan. `submittedAt` mencatat niat klik. `confirmedAt` berarti pengguna memasukkan referensi setelah memeriksa situs resmi. Tidak ada parser bukti penerimaan pemerintah dalam versi ini.
-
-Status `outcome_unknown` menghentikan antrean. Aplikasi tidak mengulang klik yang hasilnya belum diketahui. Gangguan setelah niat klik juga masuk status itu. Selesaikan pemeriksaan melalui Check Registration. Kegagalan sebelum niat klik dapat dicoba ulang melalui tindakan pengguna. Tombol hentikan tidak dapat membatalkan klik yang sudah terjadi.
-
-Formulir resmi dapat berubah. Companion berhenti jika pilihan, kolom, nilai setelah pengisian, tanggal tiba, atau bukti puzzle tidak cocok. Tombol kirim yang sudah aktif saat halaman dibuka bukan bukti puzzle. Companion memerlukan interaksi pointer pengguna pada puzzle dan perubahan DOM menuju status sukses dalam dokumen yang sama.
-
-## Periksa perubahan
+## Pemeriksaan
 
 ```sh
 npm run verify
+npm run test:remote
 ```
 
-Perintah itu menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, build produksi, dan OCR model dengan dokumen sintetis. Tes memakai data sintetis. Jangan gunakan paspor asli dalam tes atau commit.
+`verify` menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, build, dan pembacaan MRZ sintetis dengan WASM lokal. `test:remote` memerlukan konfigurasi Vercel dan menjalankan browser sementara pada fixture sintetis. Fixture memblokir permintaan pemerintah dan memeriksa pengisian, pointer, replay, ACK yang ditahan, serta satu klik setelah ACK.
 
-[Pengujian companion](docs/extension-testing.md) menjelaskan pengujian Chromium persisten dengan ZIP hasil unduh dan fixture lokal. [Batas data dan keamanan](docs/security.md) menjelaskan penyimpanan, izin, dan jurnal pengiriman.
-
-Untuk mengulang pemeriksaan model OCR tanpa build aplikasi, jalankan `npm run test:ocr`. Perintah itu menjalankan WASM lokal pada PNG dokumen uji dan membandingkan dua baris MRZ dengan teks sumber. Pemeriksaan itu tidak menggantikan pengujian unggah dan crop di browser.
-
-Untuk memeriksa preprocessing transparansi pada canvas Chromium, jalankan `npx playwright install chromium` lalu `npm run test:ocr:canvas`. Regresi ini membuat gambar sintetis dengan margin transparan, memeriksa piksel putih yang opak, dan memastikan dua baris teks tetap terpisah. Tes tidak memakai gambar spesimen eksternal atau permintaan jaringan.
-
-Validasi OCR pada 15 Oktober 2026 memakai MRZ sintetis dengan WASM lokal dan [sampel fiktif UTOPIA/ERIKSSON dari PassportEye](https://github.com/konstantint/PassportEye/blob/master/tests/data/passport-td3.jpg) melalui browser. Sampel fiktif yang jelas menghasilkan nama, nomor paspor, tanggal lahir, jenis kelamin, dan masa berlaku sesuai MRZ, dengan checksum yang lolos. Kode UTO bersifat fiktif dan tidak tersedia dalam pilihan negara MDAC. Spesimen GOV.UK 2020 dan 2015 beresolusi rendah tetap gagal diekstrak setelah dikompositkan ke putih. Gunakan isian manual jika OCR tidak terbaca. Pengujian ini tidak mengukur akurasi foto paspor nyata. Gambar eksternal tidak disertakan dalam repository.
+Jangan kirim data uji ke pemerintah. Pemeriksaan halaman resmi hanya membuka formulir dan melihat puzzle. OCR dapat gagal pada gambar buram atau kecil; isian manual tetap tersedia. Fixture OCR tidak mengukur akurasi paspor nyata.
