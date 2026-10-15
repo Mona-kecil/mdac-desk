@@ -5,3 +5,6 @@ build/
 .env*
 .DS_Store
 .audit/
+
+static/ocr/
+static/fixture-adapter.js

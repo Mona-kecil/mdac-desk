@@ -1,3 +1,5 @@
+import cities from '../malaysia-cities.json';
+export { cities };
 import options from '../official-options.json';
 export { options };
 export const PROFILE_FIELDS = ['name','passportNo','birthDate','nationality','birthPlace','sex','passportExpiry','email','phoneCountry','phone'];
