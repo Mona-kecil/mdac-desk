@@ -257,3 +257,18 @@ it("retains click evidence through a collision backup and a divergent third data
     record.events.length,
   );
 });
+
+it("normalizes interrupted existing work even when an imported identity collides before click", async () => {
+  const a = repo();
+  const b = repo();
+  const [sa] = await a.queue([await a.saveProfile(profile)], trip);
+  await a.appendEvent(sa.id, {
+    id: crypto.randomUUID(),
+    attemptId: sa.id,
+    type: "filling",
+    at: new Date().toISOString(),
+  });
+  await b.queue([await b.saveProfile(profile)], trip);
+  await a.restoreBackup(await b.exportBackup());
+  expect((await a.listSubmissions())[0].state).toBe("blocked");
+});

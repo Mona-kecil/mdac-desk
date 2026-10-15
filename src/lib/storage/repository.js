@@ -46,7 +46,7 @@ function normalizeRestored(record) {
   });
 }
 function retainIncomingClick(existing, incoming) {
-  if (!incoming.submittedAt) return existing;
+  if (!incoming.submittedAt) return normalizeRestored(existing);
   const evidenceKey = `${incoming.fingerprint}@${incoming.submittedAt}`;
   if (
     existing.events.some(
@@ -54,7 +54,7 @@ function retainIncomingClick(existing, incoming) {
     ) ||
     existing.submittedAt === incoming.submittedAt
   )
-    return existing;
+    return normalizeRestored(existing);
   return reduceAttempt(existing, {
     id: crypto.randomUUID(),
     attemptId: existing.id,
