@@ -226,3 +226,34 @@ it("blocks a queued identity when a different submission ID has click evidence",
     record.events.length,
   );
 });
+
+it("retains click evidence through a collision backup and a divergent third database", async () => {
+  const a = repo();
+  const b = repo();
+  const c = repo();
+  const [sa] = await a.queue([await a.saveProfile(profile)], trip);
+  await c.restoreBackup(await a.exportBackup());
+  const event = (id, type) => ({
+    id: crypto.randomUUID(),
+    attemptId: id,
+    type,
+    at: new Date().toISOString(),
+  });
+  await c.appendEvent(sa.id, event(sa.id, "blocked"));
+  await c.appendEvent(sa.id, event(sa.id, "retry"));
+  const [sb] = await b.queue([await b.saveProfile(profile)], trip);
+  for (const type of ["filling", "awaiting_verification", "click_intent"])
+    await b.appendEvent(sb.id, event(sb.id, type));
+  await a.restoreBackup(await b.exportBackup());
+  expect(
+    (await a.listSubmissions())[0].events.map((event) => event.type),
+  ).toEqual(["backup_conflict"]);
+  await c.restoreBackup(await a.exportBackup());
+  const record = (await c.listSubmissions())[0];
+  expect(record.state).toBe("outcome_unknown");
+  await expect(c.appendEvent(sa.id, event(sa.id, "retry"))).rejects.toThrow();
+  await c.restoreBackup(await a.exportBackup());
+  expect((await c.listSubmissions())[0].events).toHaveLength(
+    record.events.length,
+  );
+});

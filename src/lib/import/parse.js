@@ -1,3 +1,4 @@
+import { Parser } from "saxen";
 import { PROFILE_FIELDS } from "../domain/schema.js";
 import { validateProfile } from "../domain/validate.js";
 import { unzipSync } from "fflate";
@@ -64,43 +65,63 @@ export function preflightWorkbook(bytes) {
   });
   for (const bytes of Object.values(xml)) {
     const text = new TextDecoder().decode(bytes);
+    if (!text.trimStart().startsWith("<")) continue;
     let rowCount = 0;
     let cellCount = 0;
+    let rowCells = 0;
     let maxRow = 0;
     let maxColumn = 0;
-    for (const match of text.matchAll(/<(?:[A-Za-z_][\w.-]*:)?row\b[^>]*>/g)) {
-      rowCount++;
-      const reference = /\br\s*=\s*["']([^"']+)["']/.exec(match[0]);
-      const number = reference ? Number(reference[1]) : rowCount;
-      if (!Number.isInteger(number) || number < 1 || number > MAX_ROWS + 1)
-        throw new Error("Referensi baris XLSX melebihi batas 1000 penumpang.");
-      maxRow = Math.max(maxRow, number);
-    }
-    for (const match of text.matchAll(/<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/g)) {
-      cellCount++;
-      const reference = /\br\s*=\s*["']([^"']+)["']/.exec(match[0]);
-      if (reference) {
-        const coordinate = /^([A-Z]+)([1-9]\d*)$/.exec(reference[1]);
-        if (!coordinate) throw new Error("Referensi sel XLSX tidak valid.");
-        const column = [...coordinate[1]].reduce(
-          (total, char) => total * 26 + char.charCodeAt(0) - 64,
-          0,
-        );
-        const row = Number(coordinate[2]);
-        if (column > MAX_COLUMNS || row > MAX_ROWS + 1)
+    const parser = new Parser();
+    const malformed = () => {
+      throw new Error("XML workbook tidak valid.");
+    };
+    parser.on("error", malformed);
+    parser.on("warn", malformed);
+    parser.on("openTag", (name, getAttributes, decodeEntities) => {
+      const localName = name.split(":").at(-1);
+      if (!["row", "c"].includes(localName)) return;
+      const attributes = getAttributes();
+      const reference =
+        attributes.r === undefined ? undefined : decodeEntities(attributes.r);
+      if (localName === "row") {
+        rowCount++;
+        rowCells = 0;
+        const number = reference === undefined ? rowCount : Number(reference);
+        if (
+          !Number.isInteger(number) ||
+          number < 1 ||
+          number > MAX_ROWS + 1 ||
+          rowCount > MAX_ROWS + 1
+        )
           throw new Error(
-            "Referensi sel XLSX melebihi batas baris atau 100 kolom.",
+            "Referensi baris XLSX melebihi batas 1000 penumpang.",
           );
-        maxRow = Math.max(maxRow, row);
-        maxColumn = Math.max(maxColumn, column);
+        maxRow = Math.max(maxRow, number);
+      } else {
+        cellCount++;
+        rowCells++;
+        if (rowCells > MAX_COLUMNS || cellCount > (MAX_ROWS + 1) * MAX_COLUMNS)
+          throw new Error("Matriks XLSX melebihi batas kolom atau sel.");
+        if (reference !== undefined) {
+          const coordinate = /^([A-Z]+)([1-9]\d*)$/.exec(reference);
+          if (!coordinate) throw new Error("Referensi sel XLSX tidak valid.");
+          const column = [...coordinate[1]].reduce(
+            (total, char) => total * 26 + char.charCodeAt(0) - 64,
+            0,
+          );
+          const row = Number(coordinate[2]);
+          if (column > MAX_COLUMNS || row > MAX_ROWS + 1)
+            throw new Error(
+              "Referensi sel XLSX melebihi batas baris atau 100 kolom.",
+            );
+          maxRow = Math.max(maxRow, row);
+          maxColumn = Math.max(maxColumn, column);
+        }
       }
-    }
-    if (
-      rowCount > MAX_ROWS + 1 ||
-      cellCount > (MAX_ROWS + 1) * MAX_COLUMNS ||
-      maxRow * maxColumn > (MAX_ROWS + 1) * MAX_COLUMNS
-    )
-      throw new Error("Matriks XLSX melebihi batas.");
+      if (maxRow * maxColumn > (MAX_ROWS + 1) * MAX_COLUMNS)
+        throw new Error("Matriks XLSX melebihi batas.");
+    });
+    parser.parse(text);
   }
 }
 export async function parseImport(file, mapping = {}) {

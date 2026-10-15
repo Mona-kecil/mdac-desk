@@ -129,3 +129,14 @@ it("preflights uppercase and nonstandard worksheet member names", async () => {
     ).rejects.toThrow("Referensi baris XLSX");
   }
 });
+
+it("reads actual XML attributes when another attribute contains a greater-than sign", async () => {
+  const { unzipSync } = await import("fflate");
+  const files = unzipSync(new Uint8Array(await workbook(row).arrayBuffer()));
+  files["xl/worksheets/sheet1.xml"] = strToU8(
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:x="urn:fixture"><sheetData><row x:note=">" r="10000"><c x:note=">" r="J10000" t="inlineStr"><is><t>X</t></is></c></row></sheetData></worksheet>',
+  );
+  await expect(
+    parseImport(new File([zipSync(files)], "quoted-attribute.xlsx")),
+  ).rejects.toThrow("Referensi baris XLSX");
+});

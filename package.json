@@ -23,6 +23,7 @@
     "fflate": "^0.8.2",
     "idb": "^8.0.3",
     "read-excel-file": "^9.3.12",
+    "saxen": "^11.2.0",
     "svelte": "^5.57.2",
     "tesseract.js": "^7.0.0"
   },

@@ -45,6 +45,29 @@ function normalizeRestored(record) {
     detail: "Dipulihkan dari cadangan. Periksa sebelum melanjutkan.",
   });
 }
+function retainIncomingClick(existing, incoming) {
+  if (!incoming.submittedAt) return existing;
+  const evidenceKey = `${incoming.fingerprint}@${incoming.submittedAt}`;
+  if (
+    existing.events.some(
+      (event) => event.conflictEvidenceKey === evidenceKey,
+    ) ||
+    existing.submittedAt === incoming.submittedAt
+  )
+    return existing;
+  return reduceAttempt(existing, {
+    id: crypto.randomUUID(),
+    attemptId: existing.id,
+    type: "backup_conflict",
+    at: new Date().toISOString(),
+    conflictClickAt: incoming.submittedAt,
+    conflictEvidenceKey: evidenceKey,
+    conflictSourceEventId: incoming.events.at(-1).id,
+    sourceAttemptId: incoming.id,
+    detail:
+      "Cadangan untuk paspor dan tanggal tiba yang sama memuat niat klik. Antrean dihentikan. Periksa Check Registration.",
+  });
+}
 const identity = (profile) =>
   profile.nationality && profile.passportNo
     ? `${profile.nationality}|${profile.passportNo.toUpperCase()}`
@@ -312,31 +335,7 @@ export function createRepository(name = "mdac-desk") {
               JSON.stringify(existing.tripSnapshot) !==
                 JSON.stringify(raw.tripSnapshot)
             ) {
-              const click = raw.events.find(
-                (event) =>
-                  event.type === "click_intent" ||
-                  event.type === "backup_conflict",
-              );
-              if (
-                click &&
-                !existing.events.some(
-                  (event) => event.conflictSourceEventId === click.id,
-                )
-              ) {
-                await store.put(
-                  reduceAttempt(existing, {
-                    id: crypto.randomUUID(),
-                    attemptId: existing.id,
-                    type: "backup_conflict",
-                    at: new Date().toISOString(),
-                    conflictClickAt: restored.submittedAt,
-                    conflictSourceEventId: click.id,
-                    sourceAttemptId: raw.id,
-                    detail:
-                      "Cadangan paspor dan tanggal tiba yang sama memuat niat klik. Periksa Check Registration sebelum melanjutkan.",
-                  }),
-                );
-              }
+              await store.put(retainIncomingClick(existing, restored));
               continue;
             }
             let merged = existing;
@@ -360,27 +359,7 @@ export function createRepository(name = "mdac-desk") {
                     JSON.stringify(event) !== JSON.stringify(raw.events[index]),
                 )
             ) {
-              const click = raw.events.find(
-                (event) => event.type === "click_intent",
-              );
-              if (
-                click &&
-                !existing.events.some(
-                  (event) => event.conflictSourceEventId === click.id,
-                )
-              ) {
-                merged = reduceAttempt(existing, {
-                  id: crypto.randomUUID(),
-                  attemptId: existing.id,
-                  type: "backup_conflict",
-                  at: new Date().toISOString(),
-                  conflictClickAt: click.at,
-                  conflictSourceEventId: click.id,
-                  detail:
-                    "Cadangan bercabang memuat niat klik. Antrean dihentikan. Periksa Check Registration.",
-                });
-                await store.put(merged);
-              }
+              await store.put(retainIncomingClick(existing, restored));
               continue;
             }
             if (raw.events.length > common.length) {
