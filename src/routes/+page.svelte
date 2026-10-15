@@ -1,192 +1,1698 @@
 <script>
-  import { onMount } from 'svelte';
-  import '../app.css';
-  import Icon from '#lib/components/Icon.svelte';
-  import RecordFields from '#lib/components/RecordFields.svelte';
-  import { emptyProfile, emptyTrip, options, cities, PROFILE_FIELDS, TRIP_FIELDS, stateLabels, OFFICIAL_URL, CHECK_URL } from '#lib/domain/schema.js';
-  import { validateProfile, validateTrip, arrivalRange } from '#lib/domain/validate.js';
-  import { createRepository } from '#lib/storage/repository.js';
-  import { parseImport, CSV_TEMPLATE, MAX_FILE_BYTES, MAX_ROWS } from '#lib/import/parse.js';
-  import { readPassport } from '#lib/import/ocr.js';
-  import { createBridge, downloadCompanion } from '#lib/bridge/client.js';
+  import { onMount } from "svelte";
+  import "../app.css";
+  import Icon from "#lib/components/Icon.svelte";
+  import RecordFields from "#lib/components/RecordFields.svelte";
+  import {
+    emptyProfile,
+    emptyTrip,
+    options,
+    cities,
+    PROFILE_FIELDS,
+    TRIP_FIELDS,
+    stateLabels,
+    OFFICIAL_URL,
+    CHECK_URL,
+  } from "#lib/domain/schema.js";
+  import {
+    validateProfile,
+    validateTrip,
+    arrivalRange,
+  } from "#lib/domain/validate.js";
+  import { createRepository } from "#lib/storage/repository.js";
+  import {
+    parseImport,
+    CSV_TEMPLATE,
+    MAX_FILE_BYTES,
+    MAX_ROWS,
+  } from "#lib/import/parse.js";
+  import { readPassport } from "#lib/import/ocr.js";
+  import { createBridge, downloadCompanion } from "#lib/bridge/client.js";
 
-  const labels = { name: 'Nama lengkap', passportNo: 'Nomor paspor', birthDate: 'Tanggal lahir', nationality: 'Kewarganegaraan', birthPlace: 'Negara kelahiran', sex: 'Jenis kelamin', passportExpiry: 'Berlaku hingga', email: 'Email', phoneCountry: 'Kode telepon', phone: 'Telepon', arrival: 'Tiba di Malaysia', departure: 'Meninggalkan Malaysia', transportNo: 'Penerbangan / kendaraan', travelMode: 'Moda perjalanan', embarkation: 'Negara keberangkatan', accommodationKind: 'Penginapan', address1: 'Alamat penginapan', address2: 'Alamat tambahan', state: 'Negeri / wilayah', city: 'Kota', postcode: 'Kode pos' };
-  const optionKeys = { nationality: 'nationality', birthPlace: 'nationality', phoneCountry: 'region', sex: 'sex', travelMode: 'trvlMode', embarkation: 'nationality', accommodationKind: 'accommodationStay', state: 'accommodationState' };
-  const tabs = [{ id: 'profiles', label: 'Penumpang', icon: 'users' }, { id: 'submissions', label: 'Pengiriman', icon: 'send' }, { id: 'guide', label: 'Panduan & data', icon: 'book' }];
-  let tab = 'profiles';
+  const labels = {
+    name: "Nama lengkap",
+    passportNo: "Nomor paspor",
+    birthDate: "Tanggal lahir",
+    nationality: "Kewarganegaraan",
+    birthPlace: "Negara kelahiran",
+    sex: "Jenis kelamin",
+    passportExpiry: "Berlaku hingga",
+    email: "Email",
+    phoneCountry: "Kode telepon",
+    phone: "Telepon",
+    arrival: "Tiba di Malaysia",
+    departure: "Meninggalkan Malaysia",
+    transportNo: "Penerbangan / kendaraan",
+    travelMode: "Moda perjalanan",
+    embarkation: "Negara keberangkatan",
+    accommodationKind: "Penginapan",
+    address1: "Alamat penginapan",
+    address2: "Alamat tambahan",
+    state: "Negeri / wilayah",
+    city: "Kota",
+    postcode: "Kode pos",
+  };
+  const optionKeys = {
+    nationality: "nationality",
+    birthPlace: "nationality",
+    phoneCountry: "region",
+    sex: "sex",
+    travelMode: "trvlMode",
+    embarkation: "nationality",
+    accommodationKind: "accommodationStay",
+    state: "accommodationState",
+  };
+  const tabs = [
+    { id: "profiles", label: "Penumpang", icon: "users" },
+    { id: "submissions", label: "Pengiriman", icon: "send" },
+    { id: "guide", label: "Panduan & data", icon: "book" },
+  ];
+  let tab = "profiles";
   let profiles = [];
   let submissions = [];
   let selected = [];
-  let search = '';
-  let historyFilter = 'all';
+  let search = "";
+  let historyFilter = "all";
   let loading = true;
   let busy = false;
   let repository;
   let bridge;
-  let bridgeStatus = { connected: false, message: 'Companion belum terhubung' };
+  let bridgeStatus = { connected: false, message: "Companion belum terhubung" };
   let toast = null;
-  let modal = '';
+  let modal = "";
   let profile = emptyProfile();
   let reviewed = false;
-  let profileMode = 'manual';
+  let profileMode = "manual";
   let errors = [];
   let trip = emptyTrip();
   let returnToTrip = false;
-  let range = { min: '', max: '' };
+  let range = { min: "", max: "" };
   let importFile;
   let importResult = null;
   let mapping = {};
   let reviewedRows = [];
   let importReviewed = false;
-  let ocrProgress = '';
+  let ocrProgress = "";
   let ocrIssues = [];
-  let ocrText = '';
+  let ocrText = "";
   let restoreInput;
   let confirmation = null;
-  let confirmText = '';
+  let confirmText = "";
   let reconcileSubmission;
-  let reference = '';
+  let reference = "";
   let reconciliationReviewed = false;
   let persistent = null;
-  $: currentTab = tabs.find(item => item.id === tab);
-  $: visibleProfiles = profiles.filter(item => `${item.name} ${item.passportNo} ${item.email}`.toLowerCase().includes(search.toLowerCase()));
-  $: selectedProfiles = profiles.filter(item => selected.includes(item.id));
-  $: readyCount = profiles.filter(item => item.reviewedAt && validateProfile(item).length === 0).length;
-  $: queued = submissions.filter(item => item.state === 'queued');
-  $: visibleSubmissions = submissions.filter(item => historyFilter === 'all' || (historyFilter === 'queued' ? item.state === 'queued' : historyFilter === 'attention' ? ['blocked', 'outcome_unknown', 'submitting'].includes(item.state) : item.state === 'confirmed'));
-  $: queueBlocked = submissions.some(item => ['filling', 'awaiting_verification', 'submitting', 'outcome_unknown'].includes(item.state));
-  $: validImportRows = importResult?.rows.filter(item => item.issues.length === 0 && validateProfile(item.profile).length === 0) || [];
-  function notify(message, error = false) { toast = { message, error }; }
+  $: currentTab = tabs.find((item) => item.id === tab);
+  $: visibleProfiles = profiles.filter((item) =>
+    `${item.name} ${item.passportNo} ${item.email}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
+  $: selectedProfiles = profiles.filter((item) => selected.includes(item.id));
+  $: readyCount = profiles.filter(
+    (item) => item.reviewedAt && validateProfile(item).length === 0,
+  ).length;
+  $: queued = submissions.filter((item) => item.state === "queued");
+  $: visibleSubmissions = submissions.filter(
+    (item) =>
+      historyFilter === "all" ||
+      (historyFilter === "queued"
+        ? item.state === "queued"
+        : historyFilter === "attention"
+          ? ["blocked", "outcome_unknown", "submitting"].includes(item.state)
+          : item.state === "confirmed"),
+  );
+  $: queueBlocked = submissions.some((item) =>
+    [
+      "filling",
+      "awaiting_verification",
+      "submitting",
+      "outcome_unknown",
+    ].includes(item.state),
+  );
+  $: validImportRows =
+    importResult?.rows.filter(
+      (item) => importRowIssues(item, profiles, importResult.rows).length === 0,
+    ) || [];
+  function profileIdentity(item) {
+    return item.nationality && item.passportNo
+      ? `${item.nationality.trim()}|${item.passportNo.trim().toUpperCase()}`
+      : "";
+  }
+  function importRowIssues(item, knownProfiles, rows) {
+    const issues = [
+      ...new Set([...item.issues, ...validateProfile(item.profile)]),
+    ];
+    const identity = profileIdentity(item.profile);
+    const existing =
+      identity &&
+      knownProfiles.find((saved) => profileIdentity(saved) === identity);
+    if (existing)
+      issues.push(
+        `Profil ${existing.name || existing.passportNo} sudah ada. Baris ini dilewati. Edit profil dari daftar penumpang untuk memperbaruinya.`,
+      );
+    const first =
+      identity && rows.find((row) => profileIdentity(row.profile) === identity);
+    if (first && first.row !== item.row)
+      issues.push(
+        `Paspor yang sama tercantum pada baris ${first.row}. Baris duplikat ini dilewati.`,
+      );
+    return issues;
+  }
+  function readableIssue(message) {
+    return PROFILE_FIELDS.reduce(
+      (text, key) => text.replaceAll(key, labels[key]),
+      message,
+    );
+  }
+  function toggleImportRow(row) {
+    reviewedRows = reviewedRows.includes(row)
+      ? reviewedRows.filter((item) => item !== row)
+      : [...reviewedRows, row];
+    importReviewed = false;
+  }
+  function toggleImportRows() {
+    reviewedRows = validImportRows.every((item) =>
+      reviewedRows.includes(item.row),
+    )
+      ? []
+      : validImportRows.map((item) => item.row);
+    importReviewed = false;
+  }
+  function dialogFocus(node) {
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    queueMicrotask(() => node.focus());
+    function keyboard(event) {
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        closeModal();
+      }
+      if (event.key !== "Tab") return;
+      const controls = [
+        ...node.querySelectorAll(
+          "button:not([disabled]),input:not([disabled]):not([hidden]),select:not([disabled]),a[href],summary",
+        ),
+      ].filter((item) => item.getClientRects().length);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === node)
+      ) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    node.addEventListener("keydown", keyboard);
+    return {
+      destroy() {
+        node.removeEventListener("keydown", keyboard);
+        document.body.style.overflow = overflow;
+        previous?.focus();
+      },
+    };
+  }
+  function notify(message, error = false) {
+    toast = { message, error };
+  }
   async function run(action) {
-    busy = true; errors = [];
-    try { await action(); } catch (error) { notify(error.message || 'Tindakan gagal. Periksa data lalu coba lagi.', true); }
-    finally { busy = false; }
+    busy = true;
+    errors = [];
+    try {
+      await action();
+    } catch (error) {
+      notify(
+        error.message || "Tindakan gagal. Periksa data lalu coba lagi.",
+        true,
+      );
+    } finally {
+      busy = false;
+    }
   }
   async function refresh() {
-    [profiles, submissions] = await Promise.all([repository.listProfiles(), repository.listSubmissions()]);
-    profiles = profiles.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    submissions = submissions.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    selected = selected.filter(id => profiles.some(item => item.id === id)); range = arrivalRange();
+    [profiles, submissions] = await Promise.all([
+      repository.listProfiles(),
+      repository.listSubmissions(),
+    ]);
+    profiles = profiles.sort((a, b) =>
+      (b.updatedAt || "").localeCompare(a.updatedAt || ""),
+    );
+    submissions = submissions.sort((a, b) =>
+      (b.createdAt || "").localeCompare(a.createdAt || ""),
+    );
+    selected = selected.filter((id) => profiles.some((item) => item.id === id));
+    range = arrivalRange();
   }
   onMount(() => {
     repository = createRepository();
-    bridge = createBridge({ onStatus: status => { bridgeStatus = status; }, onEvent: async event => { await repository.appendEvent(event.attemptId, event); await refresh(); } });
-    run(async () => { await refresh(); await bridge.connect(); persistent = await navigator.storage?.persisted?.() ?? null; }).finally(() => { loading = false; });
-    const reload = () => run(refresh); window.addEventListener('focus', reload);
-    return () => { window.removeEventListener('focus', reload); bridge.disconnect(); };
+    bridge = createBridge({
+      onStatus: (status) => {
+        bridgeStatus = status;
+      },
+      onEvent: async (event) => {
+        await repository.appendEvent(event.attemptId, event);
+        await refresh();
+      },
+    });
+    run(async () => {
+      await refresh();
+      await bridge.connect();
+      persistent = (await navigator.storage?.persisted?.()) ?? null;
+    }).finally(() => {
+      loading = false;
+    });
+    const reload = () =>
+      refresh().catch((error) => notify(error.message, true));
+    window.addEventListener("focus", reload);
+    return () => {
+      window.removeEventListener("focus", reload);
+      bridge.disconnect();
+    };
   });
-  function toggleSelected(id) { selected = selected.includes(id) ? selected.filter(item => item !== id) : [...selected, id]; }
-  function toggleAll() { selected = visibleProfiles.every(item => selected.includes(item.id)) ? selected.filter(id => !visibleProfiles.some(item => item.id === id)) : [...new Set([...selected, ...visibleProfiles.map(item => item.id)])]; }
-  function openProfile(item, fromTrip = false) { profile = item ? { ...item } : emptyProfile(); reviewed = false; profileMode = 'manual'; errors = []; ocrIssues = []; ocrText = ''; importResult = null; returnToTrip = fromTrip; modal = 'profile'; }
-  function openImport(mode = 'spreadsheet') { openProfile(); profileMode = mode; }
-  function closeModal() { modal = returnToTrip && modal === 'profile' ? 'trip' : ''; returnToTrip = false; errors = []; }
+  function toggleSelected(id) {
+    selected = selected.includes(id)
+      ? selected.filter((item) => item !== id)
+      : [...selected, id];
+  }
+  function toggleAll() {
+    selected = visibleProfiles.every((item) => selected.includes(item.id))
+      ? selected.filter((id) => !visibleProfiles.some((item) => item.id === id))
+      : [...new Set([...selected, ...visibleProfiles.map((item) => item.id)])];
+  }
+  function openProfile(item, fromTrip = false) {
+    profile = item ? { ...item } : emptyProfile();
+    reviewed = false;
+    profileMode = "manual";
+    errors = [];
+    ocrIssues = [];
+    ocrText = "";
+    importResult = null;
+    returnToTrip = fromTrip;
+    modal = "profile";
+  }
+  function openImport(mode = "spreadsheet") {
+    openProfile();
+    profileMode = mode;
+  }
+  function closeModal() {
+    modal = returnToTrip && modal === "profile" ? "trip" : "";
+    returnToTrip = false;
+    errors = [];
+  }
   async function saveProfile() {
-    const issues = validateProfile(profile); if (reviewed && issues.length) { errors = issues; return; }
-    await run(async () => { await repository.saveProfile({ ...profile, reviewedAt: reviewed ? new Date().toISOString() : null }); await refresh(); closeModal(); notify(reviewed ? 'Profil ditinjau dan disimpan.' : 'Draf disimpan. Lengkapi dan tinjau sebelum mengantre.'); });
+    if (
+      !profile.id &&
+      profiles.some(
+        (item) =>
+          profileIdentity(profile) &&
+          profileIdentity(item) === profileIdentity(profile),
+      )
+    ) {
+      errors = [
+        "Profil dengan paspor dan kewarganegaraan ini sudah ada. Buka Edit dari daftar penumpang untuk memperbaruinya.",
+      ];
+      return;
+    }
+    const issues = validateProfile(profile);
+    if (reviewed && issues.length) {
+      errors = issues;
+      return;
+    }
+    await run(async () => {
+      await repository.saveProfile({
+        ...profile,
+        reviewedAt: reviewed ? new Date().toISOString() : null,
+      });
+      await refresh();
+      closeModal();
+      notify(
+        reviewed
+          ? "Profil ditinjau dan disimpan."
+          : "Draf disimpan. Lengkapi dan tinjau sebelum mengantre.",
+      );
+    });
   }
-  function downloadFile(name, contents, type) { const url = URL.createObjectURL(new Blob([contents], { type })); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url); }
+  function downloadFile(name, contents, type) {
+    const url = URL.createObjectURL(new Blob([contents], { type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   async function importSpreadsheet(event) {
-    importFile = event.currentTarget.files?.[0]; if (!importFile) return;
-    await run(async () => { importResult = await parseImport(importFile); mapping = Object.fromEntries(PROFILE_FIELDS.map(key => [key, importResult.headers.includes(key) ? key : ''])); reviewedRows = []; importReviewed = false; });
+    importFile = event.currentTarget.files?.[0];
+    if (!importFile) return;
+    await run(async () => {
+      importResult = await parseImport(importFile);
+      mapping = Object.fromEntries(
+        PROFILE_FIELDS.map((key) => [
+          key,
+          importResult.headers.includes(key) ? key : "",
+        ]),
+      );
+      reviewedRows = [];
+      importReviewed = false;
+    });
   }
-  async function remapImport() { await run(async () => { importResult = await parseImport(importFile, mapping); reviewedRows = []; importReviewed = false; }); }
+  async function remapImport() {
+    await run(async () => {
+      importResult = await parseImport(importFile, mapping);
+      reviewedRows = [];
+      importReviewed = false;
+    });
+  }
   async function saveImport() {
-    if (!importReviewed) { errors = ['Tinjau setiap nilai pada baris terpilih, lalu centang pernyataan peninjauan.']; return; }
-    const rows = validImportRows.filter(item => reviewedRows.includes(item.row)); if (!rows.length) { errors = ['Pilih sedikitnya satu baris lengkap tanpa kesalahan.']; return; }
-    await run(async () => { let saved = 0; for (const row of rows) { await repository.saveProfile({ ...row.profile, reviewedAt: new Date().toISOString() }); saved += 1; } await refresh(); modal = ''; notify(`${saved} profil ditinjau dan disimpan.`); });
+    if (!importReviewed) {
+      errors = [
+        "Tinjau setiap nilai pada baris terpilih, lalu centang pernyataan peninjauan.",
+      ];
+      return;
+    }
+    const rows = validImportRows.filter((item) =>
+      reviewedRows.includes(item.row),
+    );
+    if (!rows.length) {
+      errors = ["Pilih sedikitnya satu baris lengkap tanpa kesalahan."];
+      return;
+    }
+    await run(async () => {
+      let saved = 0;
+      for (const row of rows) {
+        await repository.saveProfile({
+          ...row.profile,
+          reviewedAt: new Date().toISOString(),
+        });
+        saved += 1;
+      }
+      await refresh();
+      modal = "";
+      notify(`${saved} profil ditinjau dan disimpan.`);
+    });
   }
   async function scanPassport(event) {
-    const file = event.currentTarget.files?.[0]; if (!file) return;
-    await run(async () => { ocrProgress = 'Menyiapkan pembaca paspor lokal…'; const result = await readPassport(file, progress => { ocrProgress = typeof progress === 'string' ? progress : `${progress.status || 'Membaca paspor'} ${Math.round((progress.progress || 0) * 100)}%`; }); profile = { ...emptyProfile(), ...result.profile }; ocrIssues = result.issues; ocrText = result.text; reviewed = false; notify('Hasil OCR tersedia. Cocokkan setiap kolom dengan paspor.'); }); ocrProgress = '';
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    await run(async () => {
+      ocrProgress = "Menyiapkan pembaca paspor lokal…";
+      const result = await readPassport(file, (progress) => {
+        ocrProgress =
+          typeof progress === "number"
+            ? `Membaca paspor ${Math.round(progress * 100)}%`
+            : typeof progress === "string"
+              ? progress
+              : `${progress.status || "Membaca paspor"} ${Math.round((progress.progress || 0) * 100)}%`;
+      });
+      profile = { ...emptyProfile(), ...result.profile };
+      ocrIssues = result.issues;
+      ocrText = result.text;
+      reviewed = false;
+      notify("Hasil OCR tersedia. Cocokkan setiap kolom dengan paspor.");
+    });
+    ocrProgress = "";
   }
-  function prepareTrip() { errors = []; range = arrivalRange(); modal = 'trip'; }
+  function prepareTrip() {
+    errors = [];
+    range = arrivalRange();
+    modal = "trip";
+  }
   async function queueTrip() {
-    errors = [...validateTrip(trip), ...selectedProfiles.flatMap(item => [...validateProfile(item).map(issue => `${item.name || 'Tanpa nama'}: ${issue}`), ...(!item.reviewedAt ? [`${item.name || 'Tanpa nama'} belum ditinjau.`] : [])])];
-    if (!selectedProfiles.length) errors = ['Pilih penumpang untuk perjalanan ini.', ...errors]; if (errors.length) return;
-    await run(async () => { const records = await repository.queue(selectedProfiles, trip); await refresh(); modal = ''; tab = 'submissions'; selected = []; notify(`${records.length} pengiriman masuk antrean. Jalankan satu penumpang untuk membuka formulir resmi.`); });
+    errors = [
+      ...validateTrip(trip),
+      ...selectedProfiles.flatMap((item) => [
+        ...validateProfile(item).map(
+          (issue) => `${item.name || "Tanpa nama"}: ${issue}`,
+        ),
+        ...(!item.reviewedAt
+          ? [`${item.name || "Tanpa nama"} belum ditinjau.`]
+          : []),
+      ]),
+    ];
+    if (!selectedProfiles.length)
+      errors = ["Pilih penumpang untuk perjalanan ini.", ...errors];
+    if (errors.length) return;
+    await run(async () => {
+      const records = await repository.queue(selectedProfiles, trip);
+      await refresh();
+      modal = "";
+      tab = "submissions";
+      selected = [];
+      notify(
+        `${records.length} pengiriman masuk antrean. Jalankan satu penumpang untuk membuka formulir resmi.`,
+      );
+    });
   }
   async function startSubmission(item) {
-    await run(async () => { await refresh(); if (submissions.some(record => ['filling', 'awaiting_verification', 'submitting', 'outcome_unknown'].includes(record.state))) throw new Error('Periksa pengiriman yang masih aktif atau belum jelas hasilnya sebelum melanjutkan.'); if (!bridgeStatus.connected) throw new Error('Hubungkan Companion di Panduan & data sebelum menjalankan antrean.'); await bridge.start(item); notify('Formulir resmi dibuka. Selesaikan puzzle di tab MDAC untuk penumpang ini.'); });
+    await run(async () => {
+      await refresh();
+      if (
+        submissions.some((record) =>
+          [
+            "filling",
+            "awaiting_verification",
+            "submitting",
+            "outcome_unknown",
+          ].includes(record.state),
+        )
+      )
+        throw new Error(
+          "Periksa pengiriman yang masih aktif atau belum jelas hasilnya sebelum melanjutkan.",
+        );
+      if (!bridgeStatus.connected)
+        throw new Error(
+          "Hubungkan Companion di Panduan & data sebelum menjalankan antrean.",
+        );
+      await bridge.start(item);
+      notify(
+        "Formulir resmi dibuka. Selesaikan puzzle di tab MDAC untuk penumpang ini.",
+      );
+    });
   }
-  async function retrySubmission(item) { await run(async () => { await repository.appendEvent(item.id, { id: crypto.randomUUID(), attemptId: item.id, type: 'retry', at: new Date().toISOString(), detail: 'Pengguna mengantrekan ulang kegagalan sebelum klik.' }); await refresh(); notify('Pengiriman kembali ke antrean. Tekan Jalankan untuk mencoba.'); }); }
-  function askDelete(kind, item) { confirmation = { title: kind === 'profile' ? 'Hapus profil penumpang?' : 'Hapus catatan pengiriman?', description: kind === 'profile' ? `Profil ${item.name || 'tanpa nama'} akan dihapus dari browser ini. Snapshot dalam riwayat pengiriman tetap tersimpan.` : 'Catatan beserta snapshot dan bukti peristiwa akan dihapus dari browser ini. Tindakan ini tidak membatalkan pendaftaran di situs MDAC.', action: async () => { if (kind === 'profile') await repository.deleteProfile(item.id); else await repository.deleteSubmission(item.id); await refresh(); notify('Catatan dihapus dari browser ini.'); }, clear: false }; confirmText = ''; modal = 'confirm'; }
-  function askClear() { confirmation = { title: 'Hapus seluruh data browser ini?', description: 'Semua profil, antrean, dan riwayat pengiriman akan dihapus. Ekspor cadangan sebelum melanjutkan. Pendaftaran pada situs resmi tidak berubah.', clear: true, action: async () => { await repository.clearAll(); await refresh(); selected = []; notify('Seluruh data lokal telah dihapus.'); } }; confirmText = ''; modal = 'confirm'; }
-  async function confirmAction() { if (confirmation.clear && confirmText !== 'HAPUS') return; await run(async () => { await confirmation.action(); modal = ''; }); }
-  function openReconcile(item) { reconcileSubmission = item; reference = ''; reconciliationReviewed = false; errors = []; modal = 'reconcile'; }
+  async function retrySubmission(item) {
+    await run(async () => {
+      await repository.appendEvent(item.id, {
+        id: crypto.randomUUID(),
+        attemptId: item.id,
+        type: "retry",
+        at: new Date().toISOString(),
+        detail: "Pengguna mengantrekan ulang kegagalan sebelum klik.",
+      });
+      await refresh();
+      notify("Pengiriman kembali ke antrean. Tekan Jalankan untuk mencoba.");
+    });
+  }
+  function askDelete(kind, item) {
+    confirmation = {
+      title:
+        kind === "profile"
+          ? "Hapus profil penumpang?"
+          : "Hapus catatan pengiriman?",
+      description:
+        kind === "profile"
+          ? `Profil ${item.name || "tanpa nama"} akan dihapus dari browser ini. Snapshot dalam riwayat pengiriman tetap tersimpan.`
+          : "Catatan beserta snapshot dan bukti peristiwa akan dihapus dari browser ini. Tindakan ini tidak membatalkan pendaftaran di situs MDAC.",
+      action: async () => {
+        if (kind === "profile") await repository.deleteProfile(item.id);
+        else await repository.deleteSubmission(item.id);
+        await refresh();
+        notify("Catatan dihapus dari browser ini.");
+      },
+      clear: false,
+    };
+    confirmText = "";
+    modal = "confirm";
+  }
+  function askClear() {
+    confirmation = {
+      title: "Hapus seluruh data browser ini?",
+      description:
+        "Semua profil, antrean, dan riwayat pengiriman akan dihapus. Ekspor cadangan sebelum melanjutkan. Pendaftaran pada situs resmi tidak berubah.",
+      clear: true,
+      action: async () => {
+        await repository.clearAll();
+        await refresh();
+        selected = [];
+        notify("Seluruh data lokal telah dihapus.");
+      },
+    };
+    confirmText = "";
+    modal = "confirm";
+  }
+  async function confirmAction() {
+    if (confirmation.clear && confirmText !== "HAPUS") return;
+    await run(async () => {
+      await confirmation.action();
+      modal = "";
+    });
+  }
+  function openReconcile(item) {
+    reconcileSubmission = item;
+    reference = "";
+    reconciliationReviewed = false;
+    errors = [];
+    modal = "reconcile";
+  }
   async function reconcile() {
-    if (!reference.trim() || !reconciliationReviewed) { errors = ['Masukkan referensi bukti atau PIN dan konfirmasikan pemeriksaan pendaftaran di situs resmi.']; return; }
-    await run(async () => { await repository.appendEvent(reconcileSubmission.id, { id: crypto.randomUUID(), attemptId: reconcileSubmission.id, type: 'reconcile', at: new Date().toISOString(), reference: reference.trim(), detail: 'Pengguna memeriksa pendaftaran pada halaman Check Registration MDAC.' }); await refresh(); modal = ''; notify('Konfirmasi pengguna tersimpan bersama referensi bukti.'); });
+    if (!reference.trim() || !reconciliationReviewed) {
+      errors = [
+        "Masukkan referensi bukti atau PIN dan konfirmasikan pemeriksaan pendaftaran di situs resmi.",
+      ];
+      return;
+    }
+    await run(async () => {
+      await repository.appendEvent(reconcileSubmission.id, {
+        id: crypto.randomUUID(),
+        attemptId: reconcileSubmission.id,
+        type: "reconcile",
+        at: new Date().toISOString(),
+        reference: reference.trim(),
+        detail:
+          "Pengguna memeriksa pendaftaran pada halaman Check Registration MDAC.",
+      });
+      await refresh();
+      modal = "";
+      notify("Konfirmasi pengguna tersimpan bersama referensi bukti.");
+    });
   }
-  async function restoreBackup(event) { const file = event.currentTarget.files?.[0]; if (!file) return; await run(async () => { const result = await repository.restoreBackup(JSON.parse(await file.text())); await refresh(); notify(`Cadangan digabung. ${result.profiles} profil dan ${result.submissions} pengiriman diproses.`); }); event.target.value = ''; }
-  async function requestPersistence() { await run(async () => { persistent = await navigator.storage?.persist?.() ?? false; notify(persistent ? 'Browser mengizinkan penyimpanan persisten. Tetap simpan cadangan.' : 'Browser belum memberi izin persisten. Ekspor cadangan untuk menjaga salinan data.'); }); }
-  function displayValue(key, value, snapshot = {}) { if (!value) return 'Belum diisi'; if (key === 'city') return cities[snapshot.state]?.find(item => item.value === value)?.label || value; return options[optionKeys[key]]?.find(item => item.value === value)?.label || value; }
-  function dateTime(value) { return value ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Belum tercatat'; }
-  function shortDate(value) { return value ? new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`)) : 'Tanggal belum diisi'; }
-  function initials(name = '') { return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?'; }
+  async function restoreBackup(event) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    await run(async () => {
+      const result = await repository.restoreBackup(
+        JSON.parse(await file.text()),
+      );
+      await refresh();
+      notify(
+        `Cadangan digabung. ${result.profiles} profil dan ${result.submissions} pengiriman diproses.`,
+      );
+    });
+    event.target.value = "";
+  }
+  async function requestPersistence() {
+    await run(async () => {
+      persistent = (await navigator.storage?.persist?.()) ?? false;
+      notify(
+        persistent
+          ? "Browser mengizinkan penyimpanan persisten. Tetap simpan cadangan."
+          : "Browser belum memberi izin persisten. Ekspor cadangan untuk menjaga salinan data.",
+      );
+    });
+  }
+  function displayValue(key, value, snapshot = {}) {
+    if (!value) return "Belum diisi";
+    if (key === "city")
+      return (
+        cities[snapshot.state]?.find((item) => item.value === value)?.label ||
+        value
+      );
+    return (
+      options[optionKeys[key]]?.find((item) => item.value === value)?.label ||
+      value
+    );
+  }
+  function dateTime(value) {
+    return value
+      ? new Intl.DateTimeFormat("id-ID", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(value))
+      : "Belum tercatat";
+  }
+  function shortDate(value) {
+    return value
+      ? new Intl.DateTimeFormat("id-ID", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          timeZone: "UTC",
+        }).format(new Date(`${value}T00:00:00Z`))
+      : "Tanggal belum diisi";
+  }
+  function initials(name = "") {
+    return (
+      name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase() || "?"
+    );
+  }
 </script>
 
-<svelte:head><title>MDAC Desk · Ruang kerja perjalanan</title><meta name="description" content="Siapkan profil penumpang dan Malaysia Digital Arrival Card. Data dan OCR paspor tetap di browser Anda." /></svelte:head>
+<svelte:head
+  ><title>MDAC Desk · Ruang kerja perjalanan</title><meta
+    name="description"
+    content="Siapkan profil penumpang dan Malaysia Digital Arrival Card. Data dan OCR paspor tetap di browser Anda."
+  /></svelte:head
+>
 
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-mark"><Icon name="file" size={23} /></div><div><div class="brand-name">MDAC Desk<span style="color:#68b9aa">.</span></div><small>TRAVEL WORKSPACE</small></div></div>
+    <div class="brand">
+      <div class="brand-mark"><Icon name="file" size={23} /></div>
+      <div>
+        <div class="brand-name">
+          MDAC Desk<span style="color:#68b9aa">.</span>
+        </div>
+        <small>TRAVEL WORKSPACE</small>
+      </div>
+    </div>
     <div class="eyebrow">Ruang kerja</div>
-    <nav class="nav" aria-label="Navigasi utama">{#each tabs as item}<button class:active={tab === item.id} onclick={() => { tab = item.id; }} aria-current={tab === item.id ? 'page' : undefined} aria-label={item.label}><Icon name={item.icon} /><span>{item.label}</span>{#if item.id === 'submissions' && queued.length}<span class="nav-count">{queued.length}</span>{/if}</button>{/each}</nav>
-    <div class="sidebar-bottom"><div class="local-note"><Icon name="shield" size={18} /><div>Data Anda, di browser Anda.<br />Tanpa akun. Tanpa unggah paspor.</div></div><div class="sidebar-footer">MDAC DESK &nbsp; / &nbsp; OPEN SOURCE</div></div>
+    <nav class="nav" aria-label="Navigasi utama">
+      {#each tabs as item}<button
+          class:active={tab === item.id}
+          onclick={() => {
+            tab = item.id;
+          }}
+          aria-current={tab === item.id ? "page" : undefined}
+          aria-label={item.label}
+          ><Icon name={item.icon} /><span>{item.label}</span
+          >{#if item.id === "submissions" && queued.length}<span
+              class="nav-count">{queued.length}</span
+            >{/if}</button
+        >{/each}
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="local-note">
+        <Icon name="shield" size={18} />
+        <div>
+          Data Anda, di browser Anda.<br />Tanpa akun. Tanpa unggah paspor.
+        </div>
+      </div>
+      <div class="sidebar-footer">MDAC DESK &nbsp; / &nbsp; OPEN SOURCE</div>
+    </div>
   </aside>
   <main class="workspace">
-    <header class="topbar"><div class="breadcrumb">Ruang kerja <Icon name="chevron" size={12} /><strong>{currentTab.label}</strong></div><div class="local-status"><span class="status-dot"></span> Penyimpanan lokal</div></header>
+    <header class="topbar">
+      <div class="breadcrumb">
+        Ruang kerja <Icon name="chevron" size={12} /><strong
+          >{currentTab.label}</strong
+        >
+      </div>
+      <div class="local-status">
+        <span class="status-dot"></span> Penyimpanan lokal
+      </div>
+    </header>
     <div class="content">
-      {#if tab === 'profiles'}
-        <div class="page-heading"><div><div class="eyebrow" style="margin-bottom:9px">Malaysia Digital Arrival Card</div><h1>Penumpang</h1><p>Simpan sekali. Gunakan lagi untuk perjalanan berikutnya.</p></div><div class="heading-actions"><button onclick={() => openImport()} disabled={loading}><Icon name="upload" size={16} /> Impor data</button><button class="primary" onclick={() => openProfile()} disabled={loading}><Icon name="plus" size={17} /> Tambah penumpang</button></div></div>
-        <div class="overview"><div class="stat"><div><div class="stat-label">Total penumpang</div><div class="stat-value">{profiles.length.toString().padStart(2, '0')}</div></div><div class="stat-icon"><Icon name="users" /></div></div><div class="stat"><div><div class="stat-label">Siap untuk perjalanan</div><div class="stat-value">{readyCount.toString().padStart(2, '0')}</div></div><div class="stat-icon"><Icon name="check" /></div></div><div class="stat hint"><div class="stat-icon"><Icon name="plane" /></div><div><h3>Berangkat dalam 3 hari?</h3><p>MDAC dapat diisi pada hari tiba<br />hingga 2 hari sebelumnya.</p></div></div></div>
-        <section class="panel" aria-labelledby="profiles-title"><div class="panel-header"><div><h2 id="profiles-title">Daftar penumpang <span class="muted" style="font-weight:400;margin-left:5px">{profiles.length}</span></h2><p>Profil dan kontak yang dapat digunakan kembali.</p></div><span class="badge"><Icon name="lock" size={11} /> Hanya di browser ini</span></div><div class="toolbar"><div class="search"><Icon name="search" size={17} /><input aria-label="Cari penumpang" bind:value={search} placeholder="Cari nama, paspor, atau email…" /></div><button class:primary={selected.length > 0} onclick={prepareTrip} disabled={!selected.length || busy}><Icon name="send" size={14} /> Buat perjalanan {#if selected.length}<span>({selected.length})</span>{/if}</button></div>
-          {#if loading}<div class="empty-state"><p>Memuat profil dari browser ini…</p></div>{:else if !profiles.length}<div class="empty-state"><div class="empty-icon"><Icon name="users" size={27} /></div><h3>Siapa yang akan berangkat?</h3><p>Tambahkan penumpang pertama Anda. Profil tetap tersimpan untuk perjalanan Malaysia berikutnya.</p><button class="primary" onclick={() => openProfile()}><Icon name="plus" size={16} /> Tambah penumpang pertama</button></div>{:else if !visibleProfiles.length}<div class="empty-state"><div class="empty-icon"><Icon name="search" size={27} /></div><h3>Penumpang tidak ditemukan</h3><p>Coba nama, nomor paspor, atau email lain.</p><button onclick={() => { search = ''; }}>Hapus pencarian</button></div>{:else}<div class="table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="Pilih semua hasil pencarian" checked={visibleProfiles.length > 0 && visibleProfiles.every(item => selected.includes(item.id))} onchange={toggleAll} /></th><th>Penumpang</th><th>Nomor paspor</th><th>Kewarganegaraan</th><th>Status profil</th><th aria-label="Tindakan"></th></tr></thead><tbody>{#each visibleProfiles as item}<tr><td><input type="checkbox" aria-label={`Pilih ${item.name || 'profil tanpa nama'}`} checked={selected.includes(item.id)} onchange={() => toggleSelected(item.id)} /></td><td><div class="person"><span class="avatar">{initials(item.name)}</span><div><strong>{item.name || 'Profil tanpa nama'}</strong><small>{item.email || 'Email belum diisi'}</small></div></div></td><td class="mono">{item.passportNo || 'Belum diisi'}</td><td>{displayValue('nationality', item.nationality).replace(/^[A-Z]{3} - /, '')}</td><td>{#if item.reviewedAt && !validateProfile(item).length}<span class="badge"><Icon name="check" size={11} /> Siap digunakan</span>{:else}<span class="badge draft">Perlu ditinjau</span>{/if}</td><td><button class="ghost icon-button" aria-label={`Edit ${item.name || 'profil'}`} onclick={() => openProfile(item)}><Icon name="edit" size={15} /></button><button class="ghost icon-button" aria-label={`Hapus ${item.name || 'profil'}`} onclick={() => askDelete('profile', item)}><Icon name="trash" size={15} /></button></td></tr>{/each}</tbody></table></div>{/if}
-          <div class="table-footer"><span>{selected.length ? `${selected.length} penumpang dipilih` : 'Pilih penumpang untuk membuat perjalanan bersama.'}</span><span>{visibleProfiles.length} dari {profiles.length} penumpang</span></div>
+      {#if tab === "profiles"}
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow" style="margin-bottom:9px">
+              Malaysia Digital Arrival Card
+            </div>
+            <h1>Penumpang</h1>
+            <p>Simpan sekali. Gunakan lagi untuk perjalanan berikutnya.</p>
+          </div>
+          <div class="heading-actions">
+            <button onclick={() => openImport()} disabled={loading}
+              ><Icon name="upload" size={16} /> Impor data</button
+            ><button
+              class="primary"
+              onclick={() => openProfile()}
+              disabled={loading}
+              ><Icon name="plus" size={17} /> Tambah penumpang</button
+            >
+          </div>
+        </div>
+        <div class="overview">
+          <div class="stat">
+            <div>
+              <div class="stat-label">Total penumpang</div>
+              <div class="stat-value">
+                {profiles.length.toString().padStart(2, "0")}
+              </div>
+            </div>
+            <div class="stat-icon"><Icon name="users" /></div>
+          </div>
+          <div class="stat">
+            <div>
+              <div class="stat-label">Siap untuk perjalanan</div>
+              <div class="stat-value">
+                {readyCount.toString().padStart(2, "0")}
+              </div>
+            </div>
+            <div class="stat-icon"><Icon name="check" /></div>
+          </div>
+          <div class="stat hint">
+            <div class="stat-icon"><Icon name="plane" /></div>
+            <div>
+              <h3>Berangkat dalam 3 hari?</h3>
+              <p>
+                MDAC dapat diisi pada hari tiba<br />hingga 2 hari sebelumnya.
+              </p>
+            </div>
+          </div>
+        </div>
+        <section class="panel" aria-labelledby="profiles-title">
+          <div class="panel-header">
+            <div>
+              <h2 id="profiles-title">
+                Daftar penumpang <span
+                  class="muted"
+                  style="font-weight:400;margin-left:5px"
+                  >{profiles.length}</span
+                >
+              </h2>
+              <p>Profil dan kontak yang dapat digunakan kembali.</p>
+            </div>
+            <span class="badge"
+              ><Icon name="lock" size={11} /> Hanya di browser ini</span
+            >
+          </div>
+          <div class="toolbar">
+            <div class="search">
+              <Icon name="search" size={17} /><input
+                aria-label="Cari penumpang"
+                bind:value={search}
+                placeholder="Cari nama, paspor, atau email…"
+              />
+            </div>
+            <button
+              class:primary={selected.length > 0}
+              onclick={prepareTrip}
+              disabled={!selected.length || busy}
+              ><Icon name="send" size={14} /> Buat perjalanan {#if selected.length}<span
+                  >({selected.length})</span
+                >{/if}</button
+            >
+          </div>
+          {#if loading}<div class="empty-state">
+              <p>Memuat profil dari browser ini…</p>
+            </div>{:else if !profiles.length}<div class="empty-state">
+              <div class="empty-icon"><Icon name="users" size={27} /></div>
+              <h3>Siapa yang akan berangkat?</h3>
+              <p>
+                Tambahkan penumpang pertama Anda. Profil tetap tersimpan untuk
+                perjalanan Malaysia berikutnya.
+              </p>
+              <button class="primary" onclick={() => openProfile()}
+                ><Icon name="plus" size={16} /> Tambah penumpang pertama</button
+              >
+            </div>{:else if !visibleProfiles.length}<div class="empty-state">
+              <div class="empty-icon"><Icon name="search" size={27} /></div>
+              <h3>Penumpang tidak ditemukan</h3>
+              <p>Coba nama, nomor paspor, atau email lain.</p>
+              <button
+                onclick={() => {
+                  search = "";
+                }}>Hapus pencarian</button
+              >
+            </div>{:else}<div class="table-wrap">
+              <table>
+                <thead
+                  ><tr
+                    ><th
+                      ><input
+                        type="checkbox"
+                        aria-label="Pilih semua hasil pencarian"
+                        checked={visibleProfiles.length > 0 &&
+                          visibleProfiles.every((item) =>
+                            selected.includes(item.id),
+                          )}
+                        onchange={toggleAll}
+                      /></th
+                    ><th>Penumpang</th><th>Nomor paspor</th><th
+                      >Kewarganegaraan</th
+                    ><th>Status profil</th><th aria-label="Tindakan"></th></tr
+                  ></thead
+                ><tbody
+                  >{#each visibleProfiles as item}<tr
+                      ><td
+                        ><input
+                          type="checkbox"
+                          aria-label={`Pilih ${item.name || "profil tanpa nama"}`}
+                          checked={selected.includes(item.id)}
+                          onchange={() => toggleSelected(item.id)}
+                        /></td
+                      ><td
+                        ><div class="person">
+                          <span class="avatar">{initials(item.name)}</span>
+                          <div>
+                            <strong>{item.name || "Profil tanpa nama"}</strong
+                            ><small>{item.email || "Email belum diisi"}</small>
+                          </div>
+                        </div></td
+                      ><td class="mono">{item.passportNo || "Belum diisi"}</td
+                      ><td
+                        >{displayValue("nationality", item.nationality).replace(
+                          /^[A-Z]{3} - /,
+                          "",
+                        )}</td
+                      ><td
+                        >{#if item.reviewedAt && !validateProfile(item).length}<span
+                            class="badge"
+                            ><Icon name="check" size={11} /> Siap digunakan</span
+                          >{:else}<span class="badge draft">Perlu ditinjau</span
+                          >{/if}</td
+                      ><td
+                        ><button
+                          class="ghost icon-button"
+                          aria-label={`Edit ${item.name || "profil"}`}
+                          onclick={() => openProfile(item)}
+                          ><Icon name="edit" size={15} /></button
+                        ><button
+                          class="ghost icon-button"
+                          aria-label={`Hapus ${item.name || "profil"}`}
+                          onclick={() => askDelete("profile", item)}
+                          ><Icon name="trash" size={15} /></button
+                        ></td
+                      ></tr
+                    >{/each}</tbody
+                >
+              </table>
+            </div>{/if}
+          <div class="table-footer">
+            <span
+              >{selected.length
+                ? `${selected.length} penumpang dipilih`
+                : "Pilih penumpang untuk membuat perjalanan bersama."}</span
+            ><span
+              >{visibleProfiles.length} dari {profiles.length} penumpang</span
+            >
+          </div>
         </section>
-        <div class="bottom-grid"><div class="shortcut-card"><div class="card-icon"><Icon name="file" size={22} /></div><div><h3>Sudah punya daftar penumpang?</h3><p>Impor CSV atau Excel, cocokkan kolom, lalu tinjau setiap profil sebelum menyimpannya.</p><button class="ghost" onclick={() => openImport()}>Impor dari spreadsheet <Icon name="arrow" size={13} /></button></div></div><div class="shortcut-card"><div class="card-icon"><Icon name="scan" size={22} /></div><div><h3>Mulai dari foto paspor</h3><p>Baca area MRZ di perangkat ini. Periksa hasilnya dan lengkapi kontak sebelum perjalanan.</p><button class="ghost" onclick={() => openImport('photo')}>Baca paspor dengan OCR lokal <Icon name="arrow" size={13} /></button></div></div></div>
-      {:else if tab === 'submissions'}
-        <div class="page-heading"><div><div class="eyebrow" style="margin-bottom:9px">Satu penumpang, satu verifikasi</div><h1>Pengiriman</h1><p>Jalankan antrean dan periksa bukti setiap pendaftaran.</p></div><button onclick={() => { tab = 'profiles'; }}><Icon name="users" size={16} /> Pilih penumpang</button></div>
-        <div class="notice"><Icon name="info" size={17} /><div>Companion mengisi formulir resmi. Anda menyelesaikan puzzle di tab MDAC. Setelah klik, periksa pendaftaran dan simpan referensi bukti di sini.</div></div>
-        {#if queueBlocked}<div class="notice warning"><Icon name="clock" size={17} /><div>Antrean dijeda. Selesaikan pengiriman aktif atau periksa hasil yang belum jelas di <a href={CHECK_URL} target="_blank" rel="noreferrer">Check Registration resmi</a>. Pengiriman berikutnya tidak dimulai otomatis.</div></div>{/if}
-        <section class="panel"><div class="panel-header"><div><h2>Antrean & riwayat <span class="muted">{submissions.length}</span></h2><p>Snapshot profil dan perjalanan tersimpan saat antrean dibuat.</p></div><span class="badge" class:draft={!bridgeStatus.connected}><Icon name="plug" size={12} /> {bridgeStatus.connected ? 'Companion terhubung' : 'Companion offline'}</span></div><div class="toolbar"><label style="min-width:180px"><span class="sr-only">Filter pengiriman</span><select bind:value={historyFilter}><option value="all">Semua pengiriman</option><option value="queued">Dalam antrean</option><option value="attention">Perlu perhatian</option><option value="confirmed">Dikonfirmasi pengguna</option></select></label><span class="help-text">{queued.length} menunggu giliran</span></div>
-          {#if !visibleSubmissions.length}<div class="empty-state"><div class="empty-icon"><Icon name="send" size={26} /></div><h3>{submissions.length ? 'Tidak ada pengiriman pada filter ini' : 'Perjalanan Anda dimulai di sini'}</h3><p>Pilih profil penumpang, isi detail perjalanan bersama, lalu tinjau sebelum masuk antrean.</p><button onclick={() => { tab = 'profiles'; }}><Icon name="users" size={15} /> Buka daftar penumpang</button></div>{/if}
-          {#each visibleSubmissions as item}<article class="queue-item"><div class="queue-item-heading"><div><h3>{item.profileSnapshot.name}</h3><p><span class="mono">{item.profileSnapshot.passportNo}</span> &nbsp; · &nbsp; Tiba {shortDate(item.tripSnapshot.arrival)}</p></div><span class={`badge ${item.state}`}>{stateLabels[item.state]}</span></div><div class="queue-actions">{#if item.state === 'queued'}<button class="primary small" onclick={() => startSubmission(item)} disabled={busy || queueBlocked || !bridgeStatus.connected}><Icon name="send" size={13} /> Jalankan penumpang ini</button>{/if}{#if ['filling', 'awaiting_verification'].includes(item.state)}<button class="small" onclick={() => run(async () => { await bridge.cancel(item.id); })} disabled={busy}>Hentikan sebelum klik</button>{/if}{#if ['blocked', 'cancelled'].includes(item.state) && !item.submittedAt && !item.events.some(event => event.type === 'click_intent')}<button class="small" onclick={() => retrySubmission(item)} disabled={busy}>Antrekan ulang sebelum klik</button>{/if}{#if ['submitting', 'outcome_unknown'].includes(item.state)}<button class="small" onclick={() => openReconcile(item)}><Icon name="check" size={13} /> Periksa & catat bukti</button>{/if}{#if ['queued', 'confirmed', 'blocked', 'cancelled'].includes(item.state)}<button class="small ghost" onclick={() => askDelete('submission', item)} aria-label={`Hapus riwayat ${item.profileSnapshot.name}`}><Icon name="trash" size={13} /> Hapus catatan</button>{/if}</div>
-            {#if item.state === 'awaiting_verification'}<p class="top-spaced">Buka tab formulir resmi yang disiapkan Companion. Selesaikan puzzle geser di bagian bawah formulir. Companion mencatat niat klik sebelum menekan tombol kirim satu kali.</p>{/if}
-            <details><summary>Lihat snapshot & bukti peristiwa</summary><div class="snapshot-grid"><div><div class="section-label" style="margin-top:0">Profil saat antrean dibuat</div><dl class="snapshot-list">{#each PROFILE_FIELDS as key}<div><dt>{labels[key]}</dt><dd>{displayValue(key, item.profileSnapshot[key], item.tripSnapshot)}</dd></div>{/each}</dl></div><div><div class="section-label" style="margin-top:0">Perjalanan</div><dl class="snapshot-list">{#each TRIP_FIELDS as key}<div><dt>{labels[key]}</dt><dd>{displayValue(key, item.tripSnapshot[key], item.tripSnapshot)}</dd></div>{/each}</dl></div></div><div class="help-text">Dibuat {dateTime(item.createdAt)}<br />Klik kirim {dateTime(item.submittedAt)}<br />Konfirmasi pengguna {dateTime(item.confirmedAt)}</div><ul class="event-list">{#each item.events as event}<li><strong>{stateLabels[event.type] || ({ click_intent: 'Niat klik tercatat', reconcile: 'Dikonfirmasi pengguna', retry: 'Antrean ulang oleh pengguna' }[event.type]) || event.type}</strong> · {dateTime(event.at)}{#if event.detail}<br />{event.detail}{/if}{#if event.reference}<br />Referensi bukti / PIN {event.reference}{/if}</li>{/each}</ul></details></article>{/each}
+        <div class="bottom-grid">
+          <div class="shortcut-card">
+            <div class="card-icon"><Icon name="file" size={22} /></div>
+            <div>
+              <h3>Sudah punya daftar penumpang?</h3>
+              <p>
+                Impor CSV atau Excel, cocokkan kolom, lalu tinjau setiap profil
+                sebelum menyimpannya.
+              </p>
+              <button class="ghost" onclick={() => openImport()}
+                >Impor dari spreadsheet <Icon name="arrow" size={13} /></button
+              >
+            </div>
+          </div>
+          <div class="shortcut-card">
+            <div class="card-icon"><Icon name="scan" size={22} /></div>
+            <div>
+              <h3>Mulai dari foto paspor</h3>
+              <p>
+                Baca area MRZ di perangkat ini. Periksa hasilnya dan lengkapi
+                kontak sebelum perjalanan.
+              </p>
+              <button class="ghost" onclick={() => openImport("photo")}
+                >Baca paspor dengan OCR lokal <Icon
+                  name="arrow"
+                  size={13}
+                /></button
+              >
+            </div>
+          </div>
+        </div>
+      {:else if tab === "submissions"}
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow" style="margin-bottom:9px">
+              Satu penumpang, satu verifikasi
+            </div>
+            <h1>Pengiriman</h1>
+            <p>Jalankan antrean dan periksa bukti setiap pendaftaran.</p>
+          </div>
+          <button
+            onclick={() => {
+              tab = "profiles";
+            }}><Icon name="users" size={16} /> Pilih penumpang</button
+          >
+        </div>
+        <div class="notice">
+          <Icon name="info" size={17} />
+          <div>
+            Companion mengisi formulir resmi. Anda menyelesaikan puzzle di tab
+            MDAC. Setelah klik, periksa pendaftaran dan simpan referensi bukti
+            di sini.
+          </div>
+        </div>
+        {#if queueBlocked}<div class="notice warning">
+            <Icon name="clock" size={17} />
+            <div>
+              Antrean dijeda. Selesaikan pengiriman aktif atau periksa hasil
+              yang belum jelas di <a
+                href={CHECK_URL}
+                target="_blank"
+                rel="noreferrer">Check Registration resmi</a
+              >. Pengiriman berikutnya tidak dimulai otomatis.
+            </div>
+          </div>{/if}
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>
+                Antrean & riwayat <span class="muted">{submissions.length}</span
+                >
+              </h2>
+              <p>
+                Snapshot profil dan perjalanan tersimpan saat antrean dibuat.
+              </p>
+            </div>
+            <span class="badge" class:draft={!bridgeStatus.connected}
+              ><Icon name="plug" size={12} />
+              {bridgeStatus.connected
+                ? "Companion terhubung"
+                : "Companion offline"}</span
+            >
+          </div>
+          <div class="toolbar">
+            <label style="min-width:180px"
+              ><span class="sr-only">Filter pengiriman</span><select
+                bind:value={historyFilter}
+                ><option value="all">Semua pengiriman</option><option
+                  value="queued">Dalam antrean</option
+                ><option value="attention">Perlu perhatian</option><option
+                  value="confirmed">Dikonfirmasi pengguna</option
+                ></select
+              ></label
+            ><span class="help-text">{queued.length} menunggu giliran</span>
+          </div>
+          {#if !visibleSubmissions.length}<div class="empty-state">
+              <div class="empty-icon"><Icon name="send" size={26} /></div>
+              <h3>
+                {submissions.length
+                  ? "Tidak ada pengiriman pada filter ini"
+                  : "Perjalanan Anda dimulai di sini"}
+              </h3>
+              <p>
+                Pilih profil penumpang, isi detail perjalanan bersama, lalu
+                tinjau sebelum masuk antrean.
+              </p>
+              <button
+                onclick={() => {
+                  tab = "profiles";
+                }}><Icon name="users" size={15} /> Buka daftar penumpang</button
+              >
+            </div>{/if}
+          {#each visibleSubmissions as item}<article class="queue-item">
+              <div class="queue-item-heading">
+                <div>
+                  <h3>{item.profileSnapshot.name}</h3>
+                  <p>
+                    <span class="mono">{item.profileSnapshot.passportNo}</span>
+                    &nbsp; · &nbsp; Tiba {shortDate(item.tripSnapshot.arrival)}
+                  </p>
+                </div>
+                <span class={`badge ${item.state}`}
+                  >{stateLabels[item.state]}</span
+                >
+              </div>
+              <div class="queue-actions">
+                {#if item.state === "queued"}<button
+                    class="primary small"
+                    onclick={() => startSubmission(item)}
+                    disabled={busy || queueBlocked || !bridgeStatus.connected}
+                    ><Icon name="send" size={13} /> Jalankan penumpang ini</button
+                  >{/if}{#if ["filling", "awaiting_verification"].includes(item.state)}<button
+                    class="small"
+                    onclick={() =>
+                      run(async () => {
+                        await bridge.cancel(item.id);
+                      })}
+                    disabled={busy}>Hentikan sebelum klik</button
+                  >{/if}{#if ["blocked", "cancelled"].includes(item.state) && !item.submittedAt && !item.events.some((event) => event.type === "click_intent")}<button
+                    class="small"
+                    onclick={() => retrySubmission(item)}
+                    disabled={busy}>Antrekan ulang sebelum klik</button
+                  >{/if}{#if ["submitting", "outcome_unknown"].includes(item.state)}<button
+                    class="small"
+                    onclick={() => openReconcile(item)}
+                    ><Icon name="check" size={13} /> Periksa & catat bukti</button
+                  >{/if}{#if ["queued", "confirmed", "blocked", "cancelled"].includes(item.state)}<button
+                    class="small ghost"
+                    onclick={() => askDelete("submission", item)}
+                    aria-label={`Hapus riwayat ${item.profileSnapshot.name}`}
+                    ><Icon name="trash" size={13} /> Hapus catatan</button
+                  >{/if}
+              </div>
+              {#if item.state === "awaiting_verification"}<p class="top-spaced">
+                  Buka tab formulir resmi yang disiapkan Companion. Selesaikan
+                  puzzle geser di bagian bawah formulir. Companion mencatat niat
+                  klik sebelum menekan tombol kirim satu kali.
+                </p>{/if}
+              <details>
+                <summary>Lihat snapshot & bukti peristiwa</summary>
+                <div class="snapshot-grid">
+                  <div>
+                    <div class="section-label" style="margin-top:0">
+                      Profil saat antrean dibuat
+                    </div>
+                    <dl class="snapshot-list">
+                      {#each PROFILE_FIELDS as key}<div>
+                          <dt>{labels[key]}</dt>
+                          <dd>
+                            {displayValue(
+                              key,
+                              item.profileSnapshot[key],
+                              item.tripSnapshot,
+                            )}
+                          </dd>
+                        </div>{/each}
+                    </dl>
+                  </div>
+                  <div>
+                    <div class="section-label" style="margin-top:0">
+                      Perjalanan
+                    </div>
+                    <dl class="snapshot-list">
+                      {#each TRIP_FIELDS as key}<div>
+                          <dt>{labels[key]}</dt>
+                          <dd>
+                            {displayValue(
+                              key,
+                              item.tripSnapshot[key],
+                              item.tripSnapshot,
+                            )}
+                          </dd>
+                        </div>{/each}
+                    </dl>
+                  </div>
+                </div>
+                <div class="help-text">
+                  Dibuat {dateTime(item.createdAt)}<br />Klik kirim {dateTime(
+                    item.submittedAt,
+                  )}<br />Konfirmasi pengguna {dateTime(item.confirmedAt)}
+                </div>
+                <ul class="event-list">
+                  {#each item.events as event}<li>
+                      <strong
+                        >{stateLabels[event.type] ||
+                          {
+                            click_intent: "Niat klik tercatat",
+                            reconcile: "Dikonfirmasi pengguna",
+                            retry: "Antrean ulang oleh pengguna",
+                          }[event.type] ||
+                          event.type}</strong
+                      >
+                      · {dateTime(event.at)}{#if event.detail}<br
+                        />{event.detail}{/if}{#if event.reference}<br
+                        />Referensi bukti / PIN {event.reference}{/if}
+                    </li>{/each}
+                </ul>
+              </details>
+            </article>{/each}
         </section>
       {:else}
-        <div class="page-heading"><div><div class="eyebrow" style="margin-bottom:9px">Bekerja dari browser Anda</div><h1>Panduan & data</h1><p>Hubungkan Companion dan simpan cadangan ruang kerja.</p></div></div>
-        <div class="split-layout"><section class="panel"><div class="panel-header"><div><h2>Siapkan MDAC Companion</h2><p>Untuk Chrome desktop. Pasang satu kali di browser ini.</p></div><Icon name="plug" size={20} /></div><div class="section-body"><ol class="steps"><li><div><h3>Unduh dan ekstrak Companion</h3><p>ZIP dibuat untuk alamat aplikasi ini. Ekstrak ke folder yang tidak dipindahkan setelah pemasangan.</p><button class="primary small" onclick={() => run(downloadCompanion)} disabled={busy}><Icon name="download" size={14} /> Unduh Companion ZIP</button></div></li><li><div><h3>Muat ekstensi di Chrome</h3><p>Buka <span class="mono">chrome://extensions</span>, aktifkan Mode developer, pilih Muat yang belum dikemas, lalu pilih folder hasil ekstrak.</p></div></li><li><div><h3>Muat ulang halaman ini dan hubungkan</h3><p>{bridgeStatus.message}. Companion membuka tab resmi MDAC dan menjalankan satu penumpang pada satu waktu.</p><button class="small" onclick={() => run(async () => { await bridge.connect(); })} disabled={busy}><Icon name="plug" size={14} /> Periksa koneksi</button></div></li><li><div><h3>Tinjau, jalankan, lalu selesaikan puzzle</h3><p>Pilih penumpang dan detail perjalanan. Jalankan dari Pengiriman. Selesaikan puzzle asli di tab resmi. Klik kirim belum membuktikan pendaftaran berhasil.</p></div></li><li><div><h3>Periksa bukti di situs resmi</h3><p>Gunakan halaman Check Registration untuk memeriksa pendaftaran. Catat referensi bukti atau PIN di riwayat. Statusnya diberi label Dikonfirmasi pengguna.</p><a href={CHECK_URL} target="_blank" rel="noreferrer">Buka Check Registration ↗</a></div></li></ol></div></section>
-          <div class="stack"><section class="panel"><div class="panel-header"><div><h2>Data & cadangan</h2><p>{profiles.length} profil · {submissions.length} pengiriman</p></div><Icon name="shield" size={20} /></div><div class="section-body"><p class="help-text">Profil dan riwayat berada di penyimpanan browser ini. Menghapus data situs, memakai browser lain, atau perangkat lain tidak membawa data Anda. Cadangan JSON memuat data pribadi. Simpan di tempat yang Anda kendalikan.</p><div class="data-actions"><button class="small" onclick={() => run(async () => { downloadFile(`mdac-desk-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(await repository.exportBackup(), null, 2), 'application/json'); })} disabled={busy}><Icon name="download" size={14} /> Ekspor cadangan</button><button class="small" onclick={() => restoreInput.click()} disabled={busy}><Icon name="upload" size={14} /> Pulihkan & gabung</button><input bind:this={restoreInput} type="file" accept=".json,application/json" onchange={restoreBackup} hidden /></div><p class="help-text">Pemulihan menggabungkan catatan dengan pemeriksaan duplikat. Data yang sudah ada tidak dihapus.</p><div class="section-label">Izin penyimpanan browser</div><p class="help-text">{persistent ? 'Penyimpanan persisten diizinkan. Tetap simpan cadangan terpisah.' : 'Minta browser mempertahankan penyimpanan situs. Izin ini tidak menggantikan cadangan.'}</p><button class="small top-spaced" onclick={requestPersistence} disabled={busy || persistent === true}><Icon name="lock" size={13} /> {persistent ? 'Izin persisten aktif' : 'Minta penyimpanan persisten'}</button></div></section><div class="danger-zone"><h3>Hapus data lokal</h3><p>Hapus semua profil, antrean, dan riwayat dari browser ini. Tindakan ini tidak membatalkan pendaftaran MDAC yang sudah dikirim.</p><button class="small danger" onclick={askClear} disabled={busy || queueBlocked}><Icon name="trash" size={13} /> Hapus seluruh data</button></div></div>
-        </div><div class="notice top-spaced"><Icon name="info" size={17} /><div>MDAC Desk adalah alat persiapan independen. Aturan masuk dan pendaftaran ditentukan Imigrasi Malaysia. Tanggal kedatangan mengikuti waktu Malaysia. OCR dapat salah membaca paspor. Tinjau data sebelum pengiriman. <a href={OFFICIAL_URL} target="_blank" rel="noreferrer">Buka formulir resmi</a>.</div></div>
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow" style="margin-bottom:9px">
+              Bekerja dari browser Anda
+            </div>
+            <h1>Panduan & data</h1>
+            <p>Hubungkan Companion dan simpan cadangan ruang kerja.</p>
+          </div>
+        </div>
+        <div class="split-layout">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Siapkan MDAC Companion</h2>
+                <p>Untuk Chrome desktop. Pasang satu kali di browser ini.</p>
+              </div>
+              <Icon name="plug" size={20} />
+            </div>
+            <div class="section-body">
+              <ol class="steps">
+                <li>
+                  <div>
+                    <h3>Unduh dan ekstrak Companion</h3>
+                    <p>
+                      ZIP dibuat untuk alamat aplikasi ini. Ekstrak ke folder
+                      yang tidak dipindahkan setelah pemasangan.
+                    </p>
+                    <button
+                      class="primary small"
+                      onclick={() => run(downloadCompanion)}
+                      disabled={busy}
+                      ><Icon name="download" size={14} /> Unduh Companion ZIP</button
+                    >
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Muat ekstensi di Chrome</h3>
+                    <p>
+                      Buka <span class="mono">chrome://extensions</span>,
+                      aktifkan Mode developer, pilih Muat yang belum dikemas,
+                      lalu pilih folder hasil ekstrak.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Muat ulang halaman ini dan hubungkan</h3>
+                    <p>
+                      {bridgeStatus.message}. Companion membuka tab resmi MDAC
+                      dan menjalankan satu penumpang pada satu waktu.
+                    </p>
+                    <button
+                      class="small"
+                      onclick={() =>
+                        run(async () => {
+                          await bridge.connect();
+                        })}
+                      disabled={busy}
+                      ><Icon name="plug" size={14} /> Periksa koneksi</button
+                    >
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Tinjau, jalankan, lalu selesaikan puzzle</h3>
+                    <p>
+                      Pilih penumpang dan detail perjalanan. Jalankan dari
+                      Pengiriman. Selesaikan puzzle asli di tab resmi. Klik
+                      kirim belum membuktikan pendaftaran berhasil.
+                    </p>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <h3>Periksa bukti di situs resmi</h3>
+                    <p>
+                      Gunakan halaman Check Registration untuk memeriksa
+                      pendaftaran. Catat referensi bukti atau PIN di riwayat.
+                      Statusnya diberi label Dikonfirmasi pengguna.
+                    </p>
+                    <a href={CHECK_URL} target="_blank" rel="noreferrer"
+                      >Buka Check Registration ↗</a
+                    >
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </section>
+          <div class="stack">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Data & cadangan</h2>
+                  <p>
+                    {profiles.length} profil · {submissions.length} pengiriman
+                  </p>
+                </div>
+                <Icon name="shield" size={20} />
+              </div>
+              <div class="section-body">
+                <p class="help-text">
+                  Profil dan riwayat berada di penyimpanan browser ini.
+                  Menghapus data situs, memakai browser lain, atau perangkat
+                  lain tidak membawa data Anda. Cadangan JSON memuat data
+                  pribadi. Simpan di tempat yang Anda kendalikan.
+                </p>
+                <div class="data-actions">
+                  <button
+                    class="small"
+                    onclick={() =>
+                      run(async () => {
+                        downloadFile(
+                          `mdac-desk-${new Date().toISOString().slice(0, 10)}.json`,
+                          JSON.stringify(
+                            await repository.exportBackup(),
+                            null,
+                            2,
+                          ),
+                          "application/json",
+                        );
+                      })}
+                    disabled={busy}
+                    ><Icon name="download" size={14} /> Ekspor cadangan</button
+                  ><button
+                    class="small"
+                    onclick={() => restoreInput.click()}
+                    disabled={busy}
+                    ><Icon name="upload" size={14} /> Pulihkan & gabung</button
+                  ><input
+                    bind:this={restoreInput}
+                    type="file"
+                    accept=".json,application/json"
+                    onchange={restoreBackup}
+                    hidden
+                  />
+                </div>
+                <p class="help-text">
+                  Pemulihan menggabungkan catatan dengan pemeriksaan duplikat.
+                  Data yang sudah ada tidak dihapus.
+                </p>
+                <div class="section-label">Izin penyimpanan browser</div>
+                <p class="help-text">
+                  {persistent
+                    ? "Penyimpanan persisten diizinkan. Tetap simpan cadangan terpisah."
+                    : "Minta browser mempertahankan penyimpanan situs. Izin ini tidak menggantikan cadangan."}
+                </p>
+                <button
+                  class="small top-spaced"
+                  onclick={requestPersistence}
+                  disabled={busy || persistent === true}
+                  ><Icon name="lock" size={13} />
+                  {persistent
+                    ? "Izin persisten aktif"
+                    : "Minta penyimpanan persisten"}</button
+                >
+              </div>
+            </section>
+            <div class="danger-zone">
+              <h3>Hapus data lokal</h3>
+              <p>
+                Hapus semua profil, antrean, dan riwayat dari browser ini.
+                Tindakan ini tidak membatalkan pendaftaran MDAC yang sudah
+                dikirim.
+              </p>
+              <button
+                class="small danger"
+                onclick={askClear}
+                disabled={busy || queueBlocked}
+                ><Icon name="trash" size={13} /> Hapus seluruh data</button
+              >
+            </div>
+          </div>
+        </div>
+        <div class="notice top-spaced">
+          <Icon name="info" size={17} />
+          <div>
+            MDAC Desk adalah alat persiapan independen. Aturan masuk dan
+            pendaftaran ditentukan Imigrasi Malaysia. Tanggal kedatangan
+            mengikuti waktu Malaysia. OCR dapat salah membaca paspor. Tinjau
+            data sebelum pengiriman. <a
+              href={OFFICIAL_URL}
+              target="_blank"
+              rel="noreferrer">Buka formulir resmi</a
+            >.
+          </div>
+        </div>
       {/if}
-      <footer class="workspace-footer"><span>MDAC Desk · Alat persiapan independen</span><a href={OFFICIAL_URL} target="_blank" rel="noreferrer">Situs resmi Imigrasi Malaysia ↗</a></footer>
+      <footer class="workspace-footer">
+        <span>MDAC Desk · Alat persiapan independen</span><a
+          href={OFFICIAL_URL}
+          target="_blank"
+          rel="noreferrer">Situs resmi Imigrasi Malaysia ↗</a
+        >
+      </footer>
     </div>
   </main>
 </div>
 
 {#if modal}
-  <div class="modal-backdrop"><div class="modal" class:large={modal === 'trip' || (modal === 'profile' && profileMode === 'spreadsheet')} role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1"><div class="modal-header"><div><h2 id="modal-title">{modal === 'profile' ? profile.id ? 'Edit profil penumpang' : 'Tambah penumpang' : modal === 'trip' ? 'Detail perjalanan bersama' : modal === 'confirm' ? confirmation.title : 'Catat konfirmasi pengguna'}</h2><p>{modal === 'profile' ? 'Cocokkan setiap kolom dengan paspor dan kontak penumpang.' : modal === 'trip' ? `${selectedProfiles.length} penumpang menggunakan detail perjalanan ini.` : modal === 'reconcile' ? 'Klik kirim belum menjadi bukti pendaftaran.' : 'Periksa data yang akan dihapus sebelum melanjutkan.'}</p></div><button class="ghost icon-button" onclick={closeModal} aria-label="Tutup dialog" disabled={busy}><Icon name="close" size={20} /></button></div>
-    <div class="modal-body">
-      {#if errors.length}<div class="errors" role="alert"><ul>{#each errors as error}<li>{error}</li>{/each}</ul></div>{/if}
-      {#if modal === 'profile'}
-        {#if !profile.id}<div class="segmented" aria-label="Cara menambah penumpang"><button class:active={profileMode === 'manual'} onclick={() => { profileMode = 'manual'; errors = []; }} disabled={busy}><Icon name="edit" size={15} /> Isi manual</button><button class:active={profileMode === 'spreadsheet'} onclick={() => { profileMode = 'spreadsheet'; errors = []; }} disabled={busy}><Icon name="file" size={15} /> CSV / Excel</button><button class:active={profileMode === 'photo'} onclick={() => { profileMode = 'photo'; errors = []; }} disabled={busy}><Icon name="scan" size={15} /> Foto paspor</button></div>{/if}
-        {#if profileMode === 'spreadsheet'}
-          <div class="upload-box"><Icon name="upload" size={27} /><h3>Impor daftar penumpang</h3><p>CSV atau XLSX. Maksimal {Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB dan {MAX_ROWS} baris. Format tanggal YYYY-MM-DD. Simpan nomor paspor dan telepon sebagai teks.</p><input type="file" accept=".csv,.xlsx" aria-label="Pilih spreadsheet penumpang" onchange={importSpreadsheet} disabled={busy} /><button class="text-link" onclick={() => downloadFile('template-penumpang-mdac.csv', CSV_TEMPLATE, 'text/csv;charset=utf-8')}><Icon name="download" size={13} /> Unduh template CSV</button></div>
-          {#if importResult}<details><summary>Cocokkan kolom spreadsheet</summary><div class="mapping-grid">{#each PROFILE_FIELDS as key}<label><span>{labels[key]}</span><select bind:value={mapping[key]}><option value="">Tidak dipetakan</option>{#each importResult.headers as header}<option value={header}>{header}</option>{/each}</select></label>{/each}</div><button class="small" onclick={remapImport} disabled={busy}>Terapkan pemetaan</button></details>{#if importResult.warnings.length}<div class="notice warning top-spaced"><div>{#each importResult.warnings as warning}<p>{warning}</p>{/each}</div></div>{/if}<div class="section-label">Pratinjau {importResult.rows.length} baris · {validImportRows.length} lengkap</div><p class="help-text">Buka Detail untuk memeriksa semua kolom. Hanya baris lengkap yang dapat dipilih. Perbaiki baris bermasalah di spreadsheet, lalu impor ulang.</p><div class="table-wrap top-spaced"><table class="review-table"><thead><tr><th><input type="checkbox" aria-label="Pilih semua baris lengkap" checked={validImportRows.length > 0 && validImportRows.every(item => reviewedRows.includes(item.row))} onchange={() => { reviewedRows = validImportRows.every(item => reviewedRows.includes(item.row)) ? [] : validImportRows.map(item => item.row); }} /></th><th>Baris / nama</th><th>Paspor</th><th>Pemeriksaan</th></tr></thead><tbody>{#each importResult.rows as item}<tr><td><input type="checkbox" aria-label={`Pilih baris ${item.row}`} checked={reviewedRows.includes(item.row)} disabled={item.issues.length > 0 || validateProfile(item.profile).length > 0} onchange={() => { reviewedRows = reviewedRows.includes(item.row) ? reviewedRows.filter(row => row !== item.row) : [...reviewedRows, item.row]; }} /></td><td><strong>{item.row}. {item.profile.name || 'Tanpa nama'}</strong><details><summary>Detail semua kolom</summary><dl class="snapshot-list">{#each PROFILE_FIELDS as key}<div><dt>{labels[key]}</dt><dd>{displayValue(key, item.profile[key])}</dd></div>{/each}</dl></details></td><td class="mono">{item.profile.passportNo || 'Belum diisi'}</td><td>{#if !item.issues.length && !validateProfile(item.profile).length}<span class="badge">Lengkap</span>{:else}{#each [...new Set([...item.issues, ...validateProfile(item.profile)])] as issue}<p class="error-text">{issue}</p>{/each}{/if}</td></tr>{/each}</tbody></table></div><label class="check-label top-spaced"><input type="checkbox" bind:checked={importReviewed} /><span>Saya telah mencocokkan seluruh data pada {reviewedRows.length} baris terpilih dengan paspor dan kontak penumpang.</span></label>{/if}
-        {:else}
-          {#if profileMode === 'photo'}<div class="upload-box"><Icon name="scan" size={27} /><h3>Baca foto paspor di perangkat ini</h3><p>Pilih gambar halaman identitas dengan dua baris MRZ yang terbaca. Gambar tidak diunggah dan tidak disimpan sebagai bagian profil.</p><input type="file" accept="image/jpeg,image/png,image/webp" aria-label="Pilih foto paspor" onchange={scanPassport} disabled={busy} />{#if ocrProgress}<p role="status">{ocrProgress}</p>{/if}</div>{#if ocrIssues.length}<div class="notice warning top-spaced"><div>{#each ocrIssues as issue}<p>{issue}</p>{/each}</div></div>{/if}{#if ocrText}<details><summary>Lihat teks hasil OCR</summary><pre class="help-text" style="white-space:pre-wrap;overflow-wrap:anywhere">{ocrText}</pre></details>{/if}<div class="section-label">Tinjau & lengkapi hasil pembacaan</div>{/if}<RecordFields bind:value={profile} /><label class="check-label top-spaced"><input type="checkbox" bind:checked={reviewed} /><span>Saya telah mencocokkan data dengan paspor dan memeriksa email serta nomor telepon. Profil ini siap digunakan.</span></label><p class="help-text" style="margin-top:10px">Belum lengkap? Biarkan kotak kosong untuk menyimpan draf.</p>
+  <div class="modal-backdrop">
+    <div
+      class="modal"
+      use:dialogFocus
+      class:large={modal === "trip" ||
+        (modal === "profile" && profileMode === "spreadsheet")}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      tabindex="-1"
+    >
+      <div class="modal-header">
+        <div>
+          <h2 id="modal-title">
+            {modal === "profile"
+              ? profile.id
+                ? "Edit profil penumpang"
+                : "Tambah penumpang"
+              : modal === "trip"
+                ? "Detail perjalanan bersama"
+                : modal === "confirm"
+                  ? confirmation.title
+                  : "Catat konfirmasi pengguna"}
+          </h2>
+          <p>
+            {modal === "profile"
+              ? "Cocokkan setiap kolom dengan paspor dan kontak penumpang."
+              : modal === "trip"
+                ? `${selectedProfiles.length} penumpang menggunakan detail perjalanan ini.`
+                : modal === "reconcile"
+                  ? "Klik kirim belum menjadi bukti pendaftaran."
+                  : "Periksa data yang akan dihapus sebelum melanjutkan."}
+          </p>
+        </div>
+        <button
+          class="ghost icon-button"
+          onclick={closeModal}
+          aria-label="Tutup dialog"
+          disabled={busy}><Icon name="close" size={20} /></button
+        >
+      </div>
+      <div class="modal-body">
+        {#if errors.length}<div class="errors" role="alert">
+            <ul>
+              {#each errors as error}<li>{error}</li>{/each}
+            </ul>
+          </div>{/if}
+        {#if modal === "profile"}
+          {#if !profile.id}<div
+              class="segmented"
+              aria-label="Cara menambah penumpang"
+            >
+              <button
+                class:active={profileMode === "manual"}
+                onclick={() => {
+                  profileMode = "manual";
+                  errors = [];
+                }}
+                disabled={busy}
+                ><Icon name="edit" size={15} /> Isi manual</button
+              ><button
+                class:active={profileMode === "spreadsheet"}
+                onclick={() => {
+                  profileMode = "spreadsheet";
+                  errors = [];
+                }}
+                disabled={busy}
+                ><Icon name="file" size={15} /> CSV / Excel</button
+              ><button
+                class:active={profileMode === "photo"}
+                onclick={() => {
+                  profileMode = "photo";
+                  errors = [];
+                }}
+                disabled={busy}
+                ><Icon name="scan" size={15} /> Foto paspor</button
+              >
+            </div>{/if}
+          {#if profileMode === "spreadsheet"}
+            <div class="upload-box">
+              <Icon name="upload" size={27} />
+              <h3>Impor daftar penumpang</h3>
+              <p>
+                CSV atau XLSX. Maksimal {Math.round(
+                  MAX_FILE_BYTES / 1024 / 1024,
+                )} MB dan {MAX_ROWS} baris. Format tanggal YYYY-MM-DD. Simpan nomor
+                paspor dan telepon sebagai teks.
+              </p>
+              <input
+                type="file"
+                accept=".csv,.xlsx"
+                aria-label="Pilih spreadsheet penumpang"
+                onchange={importSpreadsheet}
+                disabled={busy}
+              /><button
+                class="text-link"
+                onclick={() =>
+                  downloadFile(
+                    "template-penumpang-mdac.csv",
+                    CSV_TEMPLATE,
+                    "text/csv;charset=utf-8",
+                  )}
+                ><Icon name="download" size={13} /> Unduh template CSV</button
+              >
+            </div>
+            {#if importResult}<details>
+                <summary>Cocokkan kolom spreadsheet</summary>
+                <div class="mapping-grid">
+                  {#each PROFILE_FIELDS as key}<label
+                      ><span>{labels[key]}</span><select
+                        bind:value={mapping[key]}
+                        ><option value="">Tidak dipetakan</option
+                        >{#each importResult.headers as header}<option
+                            value={header}>{header}</option
+                          >{/each}</select
+                      ></label
+                    >{/each}
+                </div>
+                <button class="small" onclick={remapImport} disabled={busy}
+                  >Terapkan pemetaan</button
+                >
+              </details>
+              {#if importResult.warnings.length}<div
+                  class="notice warning top-spaced"
+                >
+                  <div>
+                    {#each importResult.warnings as warning}<p>
+                        {readableIssue(warning)}
+                      </p>{/each}
+                  </div>
+                </div>{/if}
+              <div class="section-label">
+                Pratinjau {importResult.rows.length} baris · {validImportRows.length}
+                lengkap
+              </div>
+              <p class="help-text">
+                Buka Detail untuk memeriksa semua kolom. Hanya baris lengkap
+                yang dapat dipilih. Perbaiki baris bermasalah di spreadsheet,
+                lalu impor ulang.
+              </p>
+              <div class="table-wrap top-spaced">
+                <table class="review-table">
+                  <thead
+                    ><tr
+                      ><th
+                        ><input
+                          type="checkbox"
+                          aria-label="Pilih semua baris lengkap"
+                          checked={validImportRows.length > 0 &&
+                            validImportRows.every((item) =>
+                              reviewedRows.includes(item.row),
+                            )}
+                          onchange={toggleImportRows}
+                        /></th
+                      ><th>Baris / nama</th><th>Paspor</th><th>Pemeriksaan</th
+                      ></tr
+                    ></thead
+                  ><tbody
+                    >{#each importResult.rows as item}<tr
+                        ><td
+                          ><input
+                            type="checkbox"
+                            aria-label={`Pilih baris ${item.row}`}
+                            checked={reviewedRows.includes(item.row)}
+                            disabled={importRowIssues(
+                              item,
+                              profiles,
+                              importResult.rows,
+                            ).length > 0}
+                            onchange={() => toggleImportRow(item.row)}
+                          /></td
+                        ><td
+                          ><strong
+                            >{item.row}. {item.profile.name ||
+                              "Tanpa nama"}</strong
+                          >
+                          <details>
+                            <summary>Detail semua kolom</summary>
+                            <dl class="snapshot-list">
+                              {#each PROFILE_FIELDS as key}<div>
+                                  <dt>{labels[key]}</dt>
+                                  <dd>
+                                    {displayValue(key, item.profile[key])}
+                                  </dd>
+                                </div>{/each}
+                            </dl>
+                          </details></td
+                        ><td class="mono"
+                          >{item.profile.passportNo || "Belum diisi"}</td
+                        ><td
+                          >{#if !importRowIssues(item, profiles, importResult.rows).length}<span
+                              class="badge">Lengkap</span
+                            >{:else}{#each importRowIssues(item, profiles, importResult.rows) as issue}<p
+                                class="error-text"
+                              >
+                                {readableIssue(issue)}
+                              </p>{/each}{/if}</td
+                        ></tr
+                      >{/each}</tbody
+                  >
+                </table>
+              </div>
+              <label class="check-label top-spaced"
+                ><input type="checkbox" bind:checked={importReviewed} /><span
+                  >Saya telah mencocokkan seluruh data pada {reviewedRows.length}
+                  baris terpilih dengan paspor dan kontak penumpang.</span
+                ></label
+              >{/if}
+          {:else}
+            {#if profileMode === "photo"}<div class="upload-box">
+                <Icon name="scan" size={27} />
+                <h3>Baca foto paspor di perangkat ini</h3>
+                <p>
+                  Pilih gambar halaman identitas dengan dua baris MRZ yang
+                  terbaca. Gambar tidak diunggah dan tidak disimpan sebagai
+                  bagian profil.
+                </p>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  aria-label="Pilih foto paspor"
+                  onchange={scanPassport}
+                  disabled={busy}
+                />{#if ocrProgress}<p role="status">{ocrProgress}</p>{/if}
+              </div>
+              {#if ocrIssues.length}<div class="notice warning top-spaced">
+                  <div>
+                    {#each ocrIssues as issue}<p>{issue}</p>{/each}
+                  </div>
+                </div>{/if}{#if ocrText}<details>
+                  <summary>Lihat teks hasil OCR</summary>
+                  <pre
+                    class="help-text"
+                    style="white-space:pre-wrap;overflow-wrap:anywhere">{ocrText}</pre>
+                </details>{/if}
+              <div class="section-label">
+                Tinjau & lengkapi hasil pembacaan
+              </div>{/if}<RecordFields bind:value={profile} /><label
+              class="check-label top-spaced"
+              ><input type="checkbox" bind:checked={reviewed} /><span
+                >Saya telah mencocokkan data dengan paspor dan memeriksa email
+                serta nomor telepon. Profil ini siap digunakan.</span
+              ></label
+            >
+            <p class="help-text" style="margin-top:10px">
+              Belum lengkap? Biarkan kotak kosong untuk menyimpan draf.
+            </p>
+          {/if}
+        {:else if modal === "trip"}
+          <div class="notice">
+            <Icon name="plane" size={17} />
+            <div>
+              Kedatangan diperbolehkan {shortDate(range.min)} sampai {shortDate(
+                range.max,
+              )}, mengikuti waktu Malaysia. Tanggal diperiksa lagi sebelum
+              pengisian dan klik kirim.
+            </div>
+          </div>
+          <RecordFields
+            kind="trip"
+            bind:value={trip}
+            minArrival={range.min}
+            maxArrival={range.max}
+          />
+          <div class="section-label">Penumpang & kontak</div>
+          <p class="help-text">
+            Data perjalanan sama untuk semua penumpang terpilih. Setiap
+            penumpang memakai kontak profilnya sendiri dan menyelesaikan puzzle
+            terpisah.
+          </p>
+          <div class="contact-list">
+            {#each selectedProfiles as item}<div class="contact-row">
+                <div>
+                  <strong>{item.name || "Tanpa nama"}</strong><small
+                    >{item.email || "Email belum diisi"} · +{item.phoneCountry}
+                    {item.phone || "Telepon belum diisi"}</small
+                  >{#if !item.reviewedAt || validateProfile(item).length}<small
+                      class="error-text"
+                      >Profil perlu dilengkapi dan ditinjau.</small
+                    >{/if}
+                </div>
+                <button
+                  class="small ghost"
+                  onclick={() => openProfile(item, true)}
+                  >Tinjau profil <Icon name="edit" size={13} /></button
+                >
+              </div>{/each}
+          </div>
+        {:else if modal === "confirm"}
+          <div class="notice warning">
+            <Icon name="trash" size={18} />
+            <p>{confirmation.description}</p>
+          </div>
+          {#if confirmation.clear}<label
+              >Ketik HAPUS untuk mengonfirmasi<input
+                bind:value={confirmText}
+                autocomplete="off"
+                placeholder="HAPUS"
+              /></label
+            >{/if}
+        {:else if modal === "reconcile"}
+          <div class="notice warning">
+            <Icon name="info" size={18} />
+            <div>
+              Hasil untuk <strong
+                >{reconcileSubmission.profileSnapshot.name}</strong
+              >, paspor {reconcileSubmission.profileSnapshot.passportNo}, tiba {shortDate(
+                reconcileSubmission.tripSnapshot.arrival,
+              )}, belum memiliki bukti yang tercatat. Jangan mengirim ulang
+              sebelum memeriksa hasilnya.
+            </div>
+          </div>
+          <ol class="plain-list">
+            <li>
+              Buka <a href={CHECK_URL} target="_blank" rel="noreferrer"
+                >Check Registration resmi MDAC</a
+              >.
+            </li>
+            <li>
+              Cari dengan nomor paspor, kewarganegaraan, dan PIN serta
+              selesaikan puzzle pada situs resmi.
+            </li>
+            <li>
+              Cocokkan identitas dan tanggal tiba, lalu catat referensi bukti di
+              bawah.
+            </li>
+          </ol>
+          <label class="top-spaced"
+            >Referensi bukti / PIN<input
+              bind:value={reference}
+              placeholder="Referensi dari bukti pendaftaran yang diperiksa"
+            /></label
+          ><label class="check-label top-spaced"
+            ><input
+              type="checkbox"
+              bind:checked={reconciliationReviewed}
+            /><span
+              >Saya memeriksa pendaftaran di situs resmi dan mencocokkan
+              identitas serta tanggal tiba. Catatan ini adalah konfirmasi saya
+              sebagai pengguna.</span
+            ></label
+          >
         {/if}
-      {:else if modal === 'trip'}
-        <div class="notice"><Icon name="plane" size={17} /><div>Kedatangan diperbolehkan {shortDate(range.min)} sampai {shortDate(range.max)}, mengikuti waktu Malaysia. Tanggal diperiksa lagi sebelum pengisian dan klik kirim.</div></div><RecordFields kind="trip" bind:value={trip} minArrival={range.min} maxArrival={range.max} /><div class="section-label">Penumpang & kontak</div><p class="help-text">Data perjalanan sama untuk semua penumpang terpilih. Setiap penumpang memakai kontak profilnya sendiri dan menyelesaikan puzzle terpisah.</p><div class="contact-list">{#each selectedProfiles as item}<div class="contact-row"><div><strong>{item.name || 'Tanpa nama'}</strong><small>{item.email || 'Email belum diisi'} · +{item.phoneCountry} {item.phone || 'Telepon belum diisi'}</small>{#if !item.reviewedAt || validateProfile(item).length}<small class="error-text">Profil perlu dilengkapi dan ditinjau.</small>{/if}</div><button class="small ghost" onclick={() => openProfile(item, true)}>Tinjau profil <Icon name="edit" size={13} /></button></div>{/each}</div>
-      {:else if modal === 'confirm'}
-        <div class="notice warning"><Icon name="trash" size={18} /><p>{confirmation.description}</p></div>{#if confirmation.clear}<label>Ketik HAPUS untuk mengonfirmasi<input bind:value={confirmText} autocomplete="off" placeholder="HAPUS" /></label>{/if}
-      {:else if modal === 'reconcile'}
-        <div class="notice warning"><Icon name="info" size={18} /><div>Hasil untuk <strong>{reconcileSubmission.profileSnapshot.name}</strong>, paspor {reconcileSubmission.profileSnapshot.passportNo}, tiba {shortDate(reconcileSubmission.tripSnapshot.arrival)}, belum memiliki bukti yang tercatat. Jangan mengirim ulang sebelum memeriksa hasilnya.</div></div><ol class="plain-list"><li>Buka <a href={CHECK_URL} target="_blank" rel="noreferrer">Check Registration resmi MDAC</a>.</li><li>Cari dengan nomor paspor, kewarganegaraan, dan PIN serta selesaikan puzzle pada situs resmi.</li><li>Cocokkan identitas dan tanggal tiba, lalu catat referensi bukti di bawah.</li></ol><label class="top-spaced">Referensi bukti / PIN<input bind:value={reference} placeholder="Referensi dari bukti pendaftaran yang diperiksa" /></label><label class="check-label top-spaced"><input type="checkbox" bind:checked={reconciliationReviewed} /><span>Saya memeriksa pendaftaran di situs resmi dan mencocokkan identitas serta tanggal tiba. Catatan ini adalah konfirmasi saya sebagai pengguna.</span></label>
-      {/if}
-    </div><div class="modal-footer"><span class="help-text">{busy ? 'Memproses…' : modal === 'profile' ? 'Data disimpan hanya di browser ini.' : modal === 'trip' ? 'Belum mengirim ke situs MDAC.' : ''}</span><div class="actions"><button onclick={closeModal} disabled={busy}>Batal</button>{#if modal === 'profile'}{#if profileMode === 'spreadsheet'}<button class="primary" onclick={saveImport} disabled={busy || !reviewedRows.length || !importReviewed}><Icon name="check" size={15} /> Simpan {reviewedRows.length || ''} baris ditinjau</button>{:else}<button class="primary" onclick={saveProfile} disabled={busy}><Icon name="check" size={15} /> {reviewed ? 'Simpan profil ditinjau' : 'Simpan draf'}</button>{/if}{:else if modal === 'trip'}<button class="primary" onclick={queueTrip} disabled={busy || !selectedProfiles.length}><Icon name="send" size={15} /> Tambahkan ke antrean</button>{:else if modal === 'confirm'}<button class="danger" onclick={confirmAction} disabled={busy || (confirmation.clear && confirmText !== 'HAPUS')}>Hapus {confirmation.clear ? 'seluruh data' : 'catatan'}</button>{:else}<button class="primary" onclick={reconcile} disabled={busy || !reference.trim() || !reconciliationReviewed}><Icon name="check" size={15} /> Simpan konfirmasi pengguna</button>{/if}</div></div>
-  </div></div>
+      </div>
+      <div class="modal-footer">
+        <span class="help-text"
+          >{busy
+            ? "Memproses…"
+            : modal === "profile"
+              ? "Data disimpan hanya di browser ini."
+              : modal === "trip"
+                ? "Belum mengirim ke situs MDAC."
+                : ""}</span
+        >
+        <div class="actions">
+          <button onclick={closeModal} disabled={busy}>Batal</button
+          >{#if modal === "profile"}{#if profileMode === "spreadsheet"}<button
+                class="primary"
+                onclick={saveImport}
+                disabled={busy || !reviewedRows.length || !importReviewed}
+                ><Icon name="check" size={15} /> Simpan {reviewedRows.length ||
+                  ""} baris ditinjau</button
+              >{:else}<button
+                class="primary"
+                onclick={saveProfile}
+                disabled={busy}
+                ><Icon name="check" size={15} />
+                {reviewed ? "Simpan profil ditinjau" : "Simpan draf"}</button
+              >{/if}{:else if modal === "trip"}<button
+              class="primary"
+              onclick={queueTrip}
+              disabled={busy || !selectedProfiles.length}
+              ><Icon name="send" size={15} /> Tambahkan ke antrean</button
+            >{:else if modal === "confirm"}<button
+              class="danger"
+              onclick={confirmAction}
+              disabled={busy || (confirmation.clear && confirmText !== "HAPUS")}
+              >Hapus {confirmation.clear ? "seluruh data" : "catatan"}</button
+            >{:else}<button
+              class="primary"
+              onclick={reconcile}
+              disabled={busy || !reference.trim() || !reconciliationReviewed}
+              ><Icon name="check" size={15} /> Simpan konfirmasi pengguna</button
+            >{/if}
+        </div>
+      </div>
+    </div>
+  </div>
 {/if}
-{#if toast}<div class="toast" class:error={toast.error} role={toast.error ? 'alert' : 'status'}><span>{toast.message}</span><button aria-label="Tutup pemberitahuan" onclick={() => { toast = null; }}><Icon name="close" size={16} /></button></div>{/if}
-<style>.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}input[hidden]{display:none}</style>
+{#if toast}<div
+    class="toast"
+    class:error={toast.error}
+    role={toast.error ? "alert" : "status"}
+  >
+    <span>{toast.message}</span><button
+      aria-label="Tutup pemberitahuan"
+      onclick={() => {
+        toast = null;
+      }}><Icon name="close" size={16} /></button
+    >
+  </div>{/if}
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  input[hidden] {
+    display: none;
+  }
+</style>
