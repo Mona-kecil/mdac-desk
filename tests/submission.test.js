@@ -53,7 +53,7 @@ function verificationFixture({ delay = 0 } = {}) {
   let record = { id: 'drag', state: 'queued', events: [], profileSnapshot: {}, tripSnapshot: {}, transport: 'web-v1' };
   const binding = { generation: 'owner', capability: 'test' };
   const events = ['filling', 'awaiting_verification'].map(type => ({ id: type, attemptId: record.id, type, at: new Date().toISOString() }));
-  const inputs = [], accepted = [];
+  const inputs = [], accepted = [], acknowledgements = [];
   let phase, generation = 'owner.1', sequence = 0;
   const repository = {
     listSubmissions: async () => [structuredClone(record)],
@@ -74,10 +74,11 @@ function verificationFixture({ delay = 0 } = {}) {
       accepted.push(body);
       return response({ sequence });
     }
+    if (action === 'ack') acknowledgements.push(body.eventId);
     return response({ handle: 'drag', generation: binding.generation, events, closed: false });
   };
   const desk = createSubmissionDesk({ repository, fetcher, changed: value => { phase = value; } });
-  return { desk, inputs, accepted, phase: () => phase, replace: () => { generation = 'owner.2'; } };
+  return { desk, inputs, accepted, acknowledgements, phase: () => phase, replace: () => { generation = 'owner.2'; } };
 }
 
 it('releases a drag within three input round trips after a 60 ms pointer stream', async () => {
@@ -96,6 +97,16 @@ it('releases a drag within three input round trips after a 60 ms pointer stream'
     expect(fixture.accepted.at(-1)).toMatchObject({ type: 'up', x: 300, sequence: fixture.accepted.length });
     expect(fixture.accepted.length).toBeLessThanOrEqual(11);
   } finally { fixture.desk.dispose(); vi.useRealTimers(); }
+});
+
+it('loads subsequent verification frames without repeating completed event acknowledgements', async () => {
+  const fixture = verificationFixture();
+  try {
+    await fixture.desk.start({ id: 'drag' });
+    await fixture.desk.reconnect();
+    expect(fixture.acknowledgements).toEqual(['filling', 'awaiting_verification']);
+    expect(fixture.phase().frame.generation).toBe('owner.1');
+  } finally { fixture.desk.dispose(); }
 });
 
 it('starts the replacement puzzle at the last accepted sequence after stale input', async () => {
