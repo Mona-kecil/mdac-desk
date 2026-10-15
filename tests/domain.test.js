@@ -111,3 +111,12 @@ describe("TD3 MRZ", () => {
     ).toBe(true);
   });
 });
+
+it("rejects a reused event ID with different evidence", () => {
+  const initial = { id: "attempt", state: "queued", events: [] };
+  const first = event("filling");
+  const record = reduceAttempt(initial, first);
+  expect(() => reduceAttempt(record, { ...first, type: "blocked" })).toThrow(
+    "bukti yang berbeda",
+  );
+});

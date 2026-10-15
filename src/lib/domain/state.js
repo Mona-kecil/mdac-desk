@@ -42,8 +42,12 @@ export function reduceAttempt(submission, event) {
       (typeof event.reference !== "string" || event.reference.length > 200))
   )
     throw new Error("Bukti peristiwa tidak valid.");
-  if (submission.events.some((previous) => previous.id === event.id))
+  const previous = submission.events.find((entry) => entry.id === event.id);
+  if (previous) {
+    if (JSON.stringify(previous) !== JSON.stringify(event))
+      throw new Error("ID peristiwa dipakai untuk bukti yang berbeda.");
     return submission;
+  }
   if (
     event.type === "retry" &&
     (submission.submittedAt ||

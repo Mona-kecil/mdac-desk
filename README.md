@@ -51,6 +51,8 @@ Formulir resmi dapat berubah. Companion berhenti jika pilihan, kolom, nilai sete
 npm run verify
 ```
 
-Perintah itu menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, dan build produksi. Tes memakai data sintetis. Jangan gunakan paspor asli dalam tes atau commit.
+Perintah itu menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, build produksi, dan OCR model dengan dokumen sintetis. Tes memakai data sintetis. Jangan gunakan paspor asli dalam tes atau commit.
 
 [Pengujian companion](docs/extension-testing.md) menjelaskan pengujian Chromium persisten dengan ZIP hasil unduh dan fixture lokal. [Batas data dan keamanan](docs/security.md) menjelaskan penyimpanan, izin, dan jurnal pengiriman.
+
+Untuk mengulang pemeriksaan model OCR tanpa build aplikasi, jalankan `npm run test:ocr`. Perintah itu menjalankan WASM lokal pada PNG dokumen uji dan membandingkan dua baris MRZ dengan teks sumber. Pemeriksaan itu tidak menggantikan pengujian unggah dan crop di browser.

@@ -268,7 +268,16 @@ export function createRepository(name = "mdac-desk") {
           if (
             !validFields(raw.profileSnapshot, PROFILE_FIELDS) ||
             !validProfileMetadata(raw.profileSnapshot) ||
+            !isInstant(raw.profileSnapshot.reviewedAt) ||
+            raw.profileId !== raw.profileSnapshot.id ||
+            PROFILE_FIELDS.some(
+              (field) => !raw.profileSnapshot[field].trim(),
+            ) ||
             !validFields(raw.tripSnapshot, TRIP_FIELDS) ||
+            TRIP_FIELDS.some(
+              (field) =>
+                field !== "address2" && !raw.tripSnapshot[field].trim(),
+            ) ||
             !isISODate(raw.profileSnapshot.birthDate) ||
             !isISODate(raw.profileSnapshot.passportExpiry) ||
             !isISODate(raw.tripSnapshot.arrival) ||
