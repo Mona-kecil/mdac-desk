@@ -44,10 +44,12 @@ try {
   const details = await remote();
   assert.equal(details.state.clicks, 1);
   assert.equal(details.state.challenge, '2');
-  const trustedSecond = details.state.pointerEvents.filter(event => event.challenge === '2');
-  assert.equal(trustedSecond.some(event => event.type === 'pointerdown' && event.trusted), true);
+  const secondDown = details.state.pointerEvents.findLastIndex(event => event.type === 'pointerdown' && event.challenge === '2');
+  const trustedSecond = details.state.pointerEvents.slice(secondDown).filter(event => ['pointerdown', 'pointermove', 'pointerup'].includes(event.type));
+  assert.equal(trustedSecond[0].type, 'pointerdown');
   assert.equal(trustedSecond.some(event => event.type === 'pointermove' && event.trusted), true);
-  assert.equal(trustedSecond.some(event => event.type === 'pointerup' && event.trusted), true);
+  assert.equal(trustedSecond.at(-1).type, 'pointerup');
+  assert.equal(trustedSecond.every(event => event.trusted), true);
   const up = details.calls.filter(call => call.action === 'input' && call.type === 'up' && call.status === 200).at(-1);
   assert.ok(up);
   proof.secondReleaseToAcceptedUpMs = up.ended - secondRelease;

@@ -1,6 +1,7 @@
 <script>
   export let phase, input, cancel, reconnect, reconcile, checkUrl;
-  let pointer = null, lastMove = 0;
+  let pointer = null, lastMove = 0, pointerGeneration;
+  $: if (pointerGeneration !== phase.frame?.generation) { pointer = null; pointerGeneration = phase.frame?.generation; }
   function relay(event, type) {
     if (!event.isTrusted || !phase.frame || phase.kind !== 'verification') return;
     if (type === 'down') { if (pointer !== null) return; pointer = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId); }

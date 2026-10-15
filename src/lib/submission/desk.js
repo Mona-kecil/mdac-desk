@@ -7,7 +7,8 @@ const pick = (value, fields) => Object.fromEntries(fields.map(key => [key, value
 export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
   let phase = { kind: 'idle' }, binding, attempt, timer, disposed = false, polling = false;
   let inputSequence = 0, inputGeneration;
-  let inputCommands = Promise.resolve();
+  let inputCommands = [], inputDrain;
+  const acknowledged = new Set();
   const update = next => { phase = next; changed(next); };
   const records = () => repository.listSubmissions();
   const localEvent = (id, type, detail) => repository.appendEvent(id, { id: crypto.randomUUID(), attemptId: id, type, at: new Date().toISOString(), detail });
@@ -21,8 +22,8 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
   const loadFrame = async () => {
     const frame = await request('frame');
     if (typeof frame.image !== 'string' || frame.image.length > 2_000_000 || !Number.isFinite(frame.width) || frame.width < 1 || frame.width > 1100 || !Number.isFinite(frame.height) || frame.height < 1 || frame.height > 850 || typeof frame.generation !== 'string' || !Number.isInteger(frame.inputSequence)) throw Error('Tampilan verifikasi tidak valid.');
-    if (inputGeneration !== binding.generation) {
-      inputGeneration = binding.generation;
+    if (inputGeneration !== frame.generation) {
+      inputGeneration = frame.generation;
       inputSequence = frame.inputSequence;
     } else inputSequence = Math.max(inputSequence, frame.inputSequence);
     return { ...frame, image: `data:image/jpeg;base64,${frame.image}` };
@@ -34,9 +35,15 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
       if (!eventTypes.has(event.type) || event.attemptId !== attempt.id || !isInstant(event.at) || typeof event.id !== 'string') throw Error('Bukti sesi tidak valid.');
       await repository.appendEvent(attempt.id, event);
       if (event.type === 'outcome_unknown') {
+        attempt = (await records()).find(item => item.id === attempt.id);
+        clearTimeout(timer);
+        update({ kind: 'paused', attempt, frame, closed: result.closed });
         try { frame = await loadFrame(); } catch {}
       }
-      await request('ack', { eventId: event.id });
+      if (!acknowledged.has(event.id)) {
+        await request('ack', { eventId: event.id });
+        acknowledged.add(event.id);
+      }
     }
     let current = (await records()).find(item => item.id === attempt.id);
     if (result.closed && !['blocked', 'cancelled', 'confirmed', 'outcome_unknown'].includes(current.state)) {
@@ -88,6 +95,22 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
       } else await poll();
     } catch (error) { update({ kind: 'connecting', attempt, error: error.message }); throw error; }
   };
+  const drainInputs = async () => {
+    while (inputCommands.length) {
+      const { type, x, y, generation } = inputCommands.shift();
+      if (phase.kind !== 'verification' || phase.frame.generation !== generation) continue;
+      try {
+        const sequence = inputSequence + 1;
+        await request('input', { type, x, y, generation, sequence });
+        inputSequence = sequence;
+        if (type === 'up') void poll();
+      } catch (error) {
+        inputCommands = inputCommands.filter(command => command.generation !== generation);
+        update({ ...phase, error: error.message });
+        await poll();
+      }
+    }
+  };
   return {
     async initialize() {
       const all = await records();
@@ -134,13 +157,12 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
       await start((await records()).find(item => item.id === record.id));
     },
     input(type, x, y, generation) {
-      inputCommands = inputCommands.then(async () => {
-        if (phase.kind !== 'verification' || phase.frame.generation !== generation) throw Error('Puzzle telah berubah. Muat kembali gambar verifikasi.');
-        const sequence = ++inputSequence;
-        await request('input', { type, x, y, generation, sequence });
-        if (type === 'up') await poll();
-      }).catch(error => update({ ...phase, error: error.message }));
-      return inputCommands;
+      const command = { type, x, y, generation };
+      const pending = inputCommands.at(-1);
+      if (['move', 'up'].includes(type) && pending?.type === 'move' && pending.generation === generation) inputCommands[inputCommands.length - 1] = command;
+      else inputCommands.push(command);
+      inputDrain ??= drainInputs().finally(() => { inputDrain = null; });
+      return inputDrain;
     },
     dispose() { disposed = true; clearTimeout(timer); },
   };
