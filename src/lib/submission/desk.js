@@ -6,7 +6,7 @@ const activeStates = new Set(['filling', 'awaiting_verification', 'submitting', 
 const pick = (value, fields) => Object.fromEntries(fields.map(key => [key, value[key]]));
 export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
   let phase = { kind: 'idle' }, binding, attempt, timer, disposed = false, polling = false;
-  let inputSequence = 0;
+  let inputSequence = 0, inputGeneration;
   let inputCommands = Promise.resolve();
   const update = next => { phase = next; changed(next); };
   const records = () => repository.listSubmissions();
@@ -21,7 +21,10 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
   const loadFrame = async () => {
     const frame = await request('frame');
     if (typeof frame.image !== 'string' || frame.image.length > 2_000_000 || !Number.isFinite(frame.width) || frame.width < 1 || frame.width > 1100 || !Number.isFinite(frame.height) || frame.height < 1 || frame.height > 850 || typeof frame.generation !== 'string' || !Number.isInteger(frame.inputSequence)) throw Error('Tampilan verifikasi tidak valid.');
-    inputSequence = Math.max(inputSequence, frame.inputSequence);
+    if (inputGeneration !== binding.generation) {
+      inputGeneration = binding.generation;
+      inputSequence = frame.inputSequence;
+    } else inputSequence = Math.max(inputSequence, frame.inputSequence);
     return { ...frame, image: `data:image/jpeg;base64,${frame.image}` };
   };
   const ingest = async result => {
