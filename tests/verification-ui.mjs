@@ -13,6 +13,7 @@ const latency = Number(process.env.FIXTURE_LATENCY || 240);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const fixture = (await readFile(new URL('./fixtures/remote-form.html', import.meta.url), 'utf8')).replace('</script>', `
 document.getElementById('captcha').dataset.challenge = '1';
+slider.style.userSelect = 'none';
 document.querySelector('#captcha strong').textContent = 'Synthetic drag 1. This puzzle changes during the first drag.';
 slider.addEventListener('pointermove', event => {
   if (drag == null || !event.isTrusted || document.getElementById('captcha').dataset.challenge !== '1' || event.clientX - drag < 80) return;
