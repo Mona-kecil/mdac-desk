@@ -43,7 +43,11 @@ const challenge = async () => {
     return canvas ? canvas.toDataURL() : document.getElementById('captcha')?.dataset.challenge || 'fixture';
   });
   const hash = createHash('sha256').update(value).digest('hex');
-  if (hash !== challengeHash) { challengeHash = hash; challengeNumber++; }
+  if (hash !== challengeHash) {
+    if (pointerDown) { await page.mouse.up(); pointerDown = false; }
+    challengeHash = hash;
+    challengeNumber++;
+  }
   return `${owner.generation}.${challengeNumber}`;
 };
 const terminal = () => ['blocked', 'cancelled', 'outcome_unknown'].includes(journal.phase);
@@ -131,7 +135,7 @@ createServer(async (request, response) => {
       if (Date.now() >= owner.expiresAt) await stop('expiry');
       lastTouch = Date.now();
       if (request.method === 'GET' && request.url === '/status') return { status: 200, data: view() };
-      if (owner.fixture && request.method === 'GET' && request.url === '/fixture-state') return { status: 200, data: await page.evaluate(() => ({ clicks: Number(document.body.dataset.nativeClicks || 0), passport: document.getElementById('passNo').value, region: document.getElementById('region').value, city: document.getElementById('accommodationCity').value, postcode: document.getElementById('accommodationPostcode').value, slider: document.querySelector('.slider').getBoundingClientRect().toJSON(), track: document.querySelector('.sliderContainer').getBoundingClientRect().toJSON(), captcha: document.getElementById('captcha').getBoundingClientRect().toJSON() })) };
+      if (owner.fixture && request.method === 'GET' && request.url === '/fixture-state') return { status: 200, data: await page.evaluate(() => ({ clicks: Number(document.body.dataset.nativeClicks || 0), challenge: document.getElementById('captcha').dataset.challenge, pointerEvents: JSON.parse(document.body.dataset.pointerEvents || '[]'), passport: document.getElementById('passNo').value, region: document.getElementById('region').value, city: document.getElementById('accommodationCity').value, postcode: document.getElementById('accommodationPostcode').value, slider: document.querySelector('.slider').getBoundingClientRect().toJSON(), track: document.querySelector('.sliderContainer').getBoundingClientRect().toJSON(), captcha: document.getElementById('captcha').getBoundingClientRect().toJSON() })) };
       if (request.method === 'GET' && request.url === '/frame') {
         if (!page || !clip || journal.closed) return { status: 410, data: { error: 'Frame closed' } };
         const image = await page.screenshot({ type: 'jpeg', quality: 80, clip });
