@@ -5,9 +5,9 @@ const eventTypes = new Set(['filling', 'awaiting_verification', 'click_intent', 
 const activeStates = new Set(['filling', 'awaiting_verification', 'submitting', 'outcome_unknown']);
 const pick = (value, fields) => Object.fromEntries(fields.map(key => [key, value[key]]));
 export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
-  let phase = { kind: 'idle' }, binding, attempt, timer, disposed = false, polling = false;
+  let phase = { kind: 'idle' }, binding, attempt, timer, disposed = false, polling;
   let inputSequence = 0, inputGeneration;
-  let inputCommands = [], inputDrain;
+  let inputCommands = [], inputDrain, inputRecovery = false;
   const acknowledged = new Set();
   const update = next => { phase = next; changed(next); };
   const records = () => repository.listSubmissions();
@@ -68,12 +68,13 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
     await changed(phase);
     if (!disposed && !result.closed && !['blocked', 'cancelled', 'outcome_unknown', 'confirmed'].includes(current.state)) timer = setTimeout(poll, 1400);
   };
-  const poll = async () => {
-    if (disposed || polling || !binding?.handle) return;
-    polling = true;
-    try { await ingest(await request('status')); }
-    catch (error) { update({ ...phase, error: `${error.message} Sambungkan kembali sesi yang sama.` }); }
-    finally { polling = false; }
+  const poll = () => {
+    if (disposed || !binding?.handle) return Promise.resolve(false);
+    polling ??= (async () => {
+      try { await ingest(await request('status')); return true; }
+      catch (error) { update({ ...phase, error: `${error.message} Sambungkan kembali sesi yang sama.` }); return false; }
+    })().finally(() => { polling = null; });
+    return polling;
   };
   const start = async record => {
     clearTimeout(timer);
@@ -96,7 +97,13 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
     } catch (error) { update({ kind: 'connecting', attempt, error: error.message }); throw error; }
   };
   const drainInputs = async () => {
-    while (inputCommands.length) {
+    while (inputCommands.length || inputRecovery) {
+      if (inputRecovery) {
+        await polling;
+        if (!await poll()) return;
+        inputRecovery = false;
+      }
+      if (!inputCommands.length) break;
       const { type, x, y, generation } = inputCommands.shift();
       if (phase.kind !== 'verification' || phase.frame.generation !== generation) continue;
       try {
@@ -105,9 +112,8 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
         inputSequence = sequence;
         if (type === 'up') void poll();
       } catch (error) {
-        inputCommands = inputCommands.filter(command => command.generation !== generation);
         update({ ...phase, error: error.message });
-        await poll();
+        inputRecovery = true;
       }
     }
   };
