@@ -1,0 +1,11 @@
+.audit
+.env*
+.vercel
+node_modules
+build
+.svelte-kit
+coverage
+test-results
+playwright-report
+runtime-spike
+static/ocr

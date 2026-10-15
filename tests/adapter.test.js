@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { createAdapter, assertArrival, formValues } from '../extension/adapter.js';
-import { companionFiles, SOURCE_FILES } from '../extension/package.js';
+import { createAdapter, assertArrival, formValues } from '../remote/adapter.js';
 
 const submission = () => ({ id: 'test-attempt', state: 'queued', profileSnapshot: { name: 'TEST PERSON', passportNo: '0001234', birthDate: '1990-01-02', nationality: 'IDN', birthPlace: 'IDN', sex: '1', passportExpiry: '2030-01-02', email: 'test@example.invalid', phoneCountry: '62', phone: '0012345678' }, tripSnapshot: { arrival: '2026-10-15', departure: '2026-10-17', transportNo: 'TEST 1', travelMode: '1', embarkation: 'IDN', accommodationKind: '01', address1: 'TEST HOTEL ROAD', address2: '', state: '14', city: 'KUL', postcode: '05000' } });
 const opened = [];
@@ -91,17 +90,5 @@ describe('official adapter', () => {
   it('rejects impossible dates and addresses with fewer than three words', () => {
     const invalid=submission(); invalid.profileSnapshot.birthDate='1990-02-30'; expect(()=>formValues(invalid)).toThrow('Tanggal');
     const short=submission(); short.tripSnapshot.address1='TEST HOTEL'; expect(()=>formValues(short)).toThrow('tiga kata');
-  });
-});
-
-describe('downloadable companion permissions', () => {
-  it('bakes the exact app origin and grants no wildcard hosting permission', () => {
-    const sources=Object.fromEntries(SOURCE_FILES.map(name=>[name,"const origin = '__MDAC_APP_ORIGIN__';"]));
-    const files=companionFiles('https://mdac.example.test',sources); const manifest=JSON.parse(files['manifest.json']);
-    expect(manifest.content_scripts[0].matches).toEqual(['https://mdac.example.test/*']);
-    expect(manifest.content_scripts[1].matches).toEqual(['https://imigresen-online.imi.gov.my/mdac/main*']);
-    expect(manifest.permissions).toEqual(['storage']);
-    expect(files['app.js']).toContain('https://mdac.example.test');
-    expect(JSON.stringify(manifest)).not.toMatch(/vercel|localhost|<all_urls>/);
   });
 });

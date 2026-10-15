@@ -73,8 +73,10 @@ const identity = (profile) =>
     ? `${profile.nationality}|${profile.passportNo.toUpperCase()}`
     : undefined;
 export function createRepository(name = "mdac-desk") {
-  const database = openDB(name, 1, {
-    upgrade(db) {
+  const database = openDB(name, 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 2) db.createObjectStore("sessionBindings", { keyPath: "attemptId" });
+      if (oldVersion >= 1) return;
       const profiles = db.createObjectStore("profiles", { keyPath: "id" });
       profiles.createIndex("identity", "identity", { unique: true });
       const submissions = db.createObjectStore("submissions", {
@@ -90,6 +92,35 @@ export function createRepository(name = "mdac-desk") {
   return {
     listProfiles: () => list("profiles"),
     listSubmissions: () => list("submissions"),
+    async bindSession(attemptId, renew = false) {
+      const db = await database;
+      const tx = db.transaction(["submissions", "sessionBindings"], "readwrite");
+      const record = await tx.objectStore("submissions").get(attemptId);
+      const store = tx.objectStore("sessionBindings");
+      const previous = await store.get(attemptId);
+      if (previous && !renew) { await tx.done; return previous; }
+      if (!record || record.state !== "queued" || record.submittedAt || record.events.some(event => ["click_intent", "backup_conflict"].includes(event.type))) {
+        tx.abort();
+        await tx.done.catch(() => {});
+        throw new Error("Pengajuan ini tidak dapat memulai sesi baru.");
+      }
+      const bytes = crypto.getRandomValues(new Uint8Array(32));
+      const capability = btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      const binding = { attemptId, generation: crypto.randomUUID(), capability, createdAt: new Date().toISOString() };
+      if (renew && previous?.handle) binding.previous = { handle: previous.handle, capability: previous.capability };
+      await store.put(binding);
+      await tx.done;
+      return binding;
+    },
+    async sessionBinding(attemptId) { return (await database).get("sessionBindings", attemptId); },
+    async saveSessionHandle(attemptId, generation, handle) {
+      const db = await database;
+      const tx = db.transaction("sessionBindings", "readwrite");
+      const binding = await tx.store.get(attemptId);
+      if (!binding || binding.generation !== generation) { tx.abort(); throw new Error("Sesi lokal berubah."); }
+      await tx.store.put({ ...binding, handle });
+      await tx.done;
+    },
     async saveProfile(input) {
       const db = await database;
       const tx = db.transaction("profiles", "readwrite");
@@ -175,6 +206,7 @@ export function createRepository(name = "mdac-desk") {
             reviewedAt: now,
             createdAt: now,
             state: "queued",
+            transport: "web-v1",
             events: [],
           };
           await store.add(record);
@@ -394,9 +426,10 @@ export function createRepository(name = "mdac-desk") {
     },
     async clearAll() {
       const db = await database;
-      const tx = db.transaction(["profiles", "submissions"], "readwrite");
+      const tx = db.transaction(["profiles", "submissions", "sessionBindings"], "readwrite");
       await tx.objectStore("profiles").clear();
       await tx.objectStore("submissions").clear();
+      await tx.objectStore("sessionBindings").clear();
       await tx.done;
     },
   };

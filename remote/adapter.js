@@ -140,7 +140,7 @@ export function createAdapter({ document, submission, emit, authorizeClick, now 
         });
         observer.observe(document.body, { attributes: true, childList: true, subtree: true });
         phase = 'awaiting_verification';
-        await emit('awaiting_verification', 'Selesaikan slider puzzle di bagian bawah formulir resmi. Setelah lolos, companion akan mengklik Submit satu kali.');
+        await emit('awaiting_verification', 'Selesaikan puzzle resmi. Pengajuan dikirim satu kali setelah verifikasi lolos.');
       } catch (error) { await reportFailure(error); }
     },
     cancel() { disposed = true; cleanup(); },

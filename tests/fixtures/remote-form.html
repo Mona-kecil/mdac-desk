@@ -11,11 +11,11 @@ body{font:16px system-ui;margin:0;background:#f6f4ed;color:#15283a}main{max-widt
 <body><main>
 <p>MDAC DESK / UJI LOKAL</p><h1>Uji pengisian dan puzzle</h1>
 <p>Halaman sintetis ini memakai adapter produksi. Tidak ada permintaan ke situs pemerintah. Tekan Isi data uji, lalu geser kotak hijau ke kotak putus-putus. Submit sudah aktif sejak awal dan tidak cukup untuk memicu klik.</p>
-<button id="fill" type="button">Isi data uji</button><p id="status" role="status">Belum dimulai.</p>
+<p id="status" role="status">Belum dimulai.</p>
 <form id="fixtureForm"><div id="captcha"><strong>Puzzle uji lokal</strong><p>Geser kotak hijau ke sasaran di kanan.</p><div class="sliderContainer"><div class="target"></div><div class="slider" role="img" aria-label="Kotak yang dapat digeser">→</div></div></div><input id="submit" type="submit" value="Submit uji lokal"></form>
 <h2>Jurnal peristiwa</h2><pre id="events">Belum ada peristiwa.</pre>
 <script type="module">
-import { createAdapter } from './fixture-adapter.js';
+
 const form = document.getElementById('fixtureForm');
 const fields = ['name','passNo','dob','nationality','pob','sex','passExpDte','email','confirmEmail','region','mobile','arrDt','depDt','vesselNm','trvlMode','embark','accommodationStay','accommodationAddress1','accommodationAddress2','accommodationState','accommodationCity','accommodationPostcode'];
 const selects = {nationality:['IDN'],pob:['IDN'],sex:['1'],region:['62','60'],trvlMode:['1'],embark:['IDN'],accommodationStay:['01'],accommodationState:['14'],accommodationCity:[]};
@@ -29,13 +29,13 @@ for (const id of ['nationality','pob']) document.getElementById(id).addEventList
   document.getElementById('region').innerHTML = '<option value="60">60 default</option><option value="62">62 Indonesia</option>';
 }, 50));
 document.getElementById('accommodationState').addEventListener('change', () => setTimeout(() => {
-  document.getElementById('accommodationCity').innerHTML = '<option value="">Pilih</option><option value="KUL">Kuala Lumpur</option>';
+  document.getElementById('accommodationCity').innerHTML = '<option value="">Pilih</option><option value="1401">Kuala Lumpur</option>';
 }, 60));
 document.getElementById('accommodationCity').addEventListener('change', () => setTimeout(() => {
   document.getElementById('accommodationPostcode').outerHTML = '<input id="accommodationPostcode" name="accommodationPostcode" value="50000">';
 }, 50));
 const today = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kuala_Lumpur',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-window.fixtureSubmission = {id:crypto.randomUUID(),state:'queued',profileSnapshot:{name:'TEST TRAVELLER',passportNo:'000123456',birthDate:'1990-01-02',nationality:'IDN',birthPlace:'IDN',sex:'1',passportExpiry:'2030-01-01',email:'test@example.invalid',phoneCountry:'62',phone:'08123456789'},tripSnapshot:{arrival:today,departure:today,transportNo:'TEST 123',travelMode:'1',embarkation:'IDN',accommodationKind:'01',address1:'TEST HOTEL ROAD',address2:'',state:'14',city:'KUL',postcode:'05000'}};
+window.fixtureSubmission = {id:crypto.randomUUID(),state:'queued',profileSnapshot:{name:'TEST TRAVELLER',passportNo:'000123456',birthDate:'1990-01-02',nationality:'IDN',birthPlace:'IDN',sex:'1',passportExpiry:'2030-01-01',email:'test@example.invalid',phoneCountry:'62',phone:'08123456789'},tripSnapshot:{arrival:today,departure:today,transportNo:'TEST 123',travelMode:'1',embarkation:'IDN',accommodationKind:'01',address1:'TEST HOTEL ROAD',address2:'',state:'14',city:'1401',postcode:'05000'}};
 const history = [];
 const emit = async (type, detail) => {history.push({type,detail}); document.getElementById('events').textContent = JSON.stringify(history,null,2); document.getElementById('status').textContent = detail || type;};
 let nativeClicks = 0;
@@ -44,11 +44,5 @@ const slider = document.querySelector('.slider'); const track = document.querySe
 slider.addEventListener('pointerdown', event => {if(!event.isTrusted)return; track.classList.remove('sliderContainer_success'); drag = event.clientX; slider.setPointerCapture(event.pointerId);});
 slider.addEventListener('pointermove', event => {if(drag == null || !event.isTrusted)return; slider.style.left = `${Math.max(2, Math.min(330,event.clientX-drag+2))}px`;});
 slider.addEventListener('pointerup', event => {if(drag == null || !event.isTrusted)return; if(Math.abs(event.clientX-drag-288)<18) track.classList.add('sliderContainer_success'); drag = null;});
-document.getElementById('fill').addEventListener('click', async event => {
-  event.target.disabled = true;
-  const adapter = createAdapter({document,submission:window.fixtureSubmission,emit,authorizeClick:async()=>{await emit('click_intent','Niat klik disimpan pada jurnal uji.'); await new Promise(resolve=>setTimeout(resolve,100));}});
-  await adapter.start();
-});
-if(new URLSearchParams(location.search).has('official')) {document.getElementById('fill').disabled=true;document.getElementById('status').textContent='Fixture terikat pada companion uji.';}
 </script>
 </main></body></html>
