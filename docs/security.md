@@ -8,7 +8,7 @@ Blob privat menyimpan penanda hash identitas/perjalanan, hash payload dan pemili
 
 Kunci namespace penanda harus tetap sama antar deployment. Rotasi membutuhkan pencarian dengan kunci lama atau penghentian create selama migrasi. Mengganti kunci tanpa migrasi dapat menghilangkan perlindungan retry.
 
-Server menerima tujuan dan operasi tetap. Pengguna menyelesaikan puzzle resmi melalui gambar browser dan pointer. Niat klik ditulis ke riwayat lokal sebelum ACK. Penanda server dibelanjakan sebelum satu izin klik diberikan ke browser aktif. Gangguan pada tahap ini dapat menghasilkan hasil tidak diketahui walaupun klik belum terjadi. Aplikasi tidak menjanjikan pendaftaran pemerintah tepat satu kali.
+Server menerima tujuan dan operasi tetap. Aplikasi menampilkan gambar latar dan potongan puzzle resmi. Pengguna menggeser potongan di perangkatnya. Setelah dilepas, posisi dan waktu gerakan dikirim dalam satu permintaan, lalu browser sementara menjalankan gerakan itu pada halaman resmi. Aplikasi tidak membaca jawaban atau menambahkan variasi gerakan. Drag lebih dari 8 detik ditolak di perangkat tanpa mengubah waktunya. Hasil tetap ditentukan oleh verifikasi resmi. Niat klik ditulis ke riwayat lokal sebelum ACK. Penanda server dibelanjakan sebelum satu izin klik diberikan ke browser aktif. Gangguan pada tahap ini dapat menghasilkan hasil tidak diketahui walaupun klik belum terjadi. Aplikasi tidak menjanjikan pendaftaran pemerintah tepat satu kali.
 
 Klik, navigasi, dan HTTP200 bukan bukti penerimaan. Konfirmasi riwayat berasal dari pengguna setelah memeriksa Check Registration. Hasil yang belum diketahui menahan antrean. Cadangan mempertahankan bukti klik dan konflik; pemulihan tidak menjalankan ulang pengiriman.
 

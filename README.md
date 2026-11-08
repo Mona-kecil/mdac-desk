@@ -43,6 +43,10 @@ npm run verify
 npm run test:remote
 ```
 
-`verify` menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, build, dan pembacaan MRZ sintetis dengan WASM lokal. `test:remote` memerlukan konfigurasi Vercel dan menjalankan browser sementara pada fixture sintetis. Fixture memblokir permintaan pemerintah dan memeriksa pengisian, pointer, replay, ACK yang ditahan, serta satu klik setelah ACK.
+`verify` menjalankan pemeriksaan Svelte, tes domain/import/IndexedDB/adapter, build, dan pembacaan MRZ sintetis dengan WASM lokal. `test:remote` memerlukan konfigurasi Vercel dan menjalankan browser sementara pada fixture sintetis. Fixture memblokir permintaan pemerintah dan memeriksa pengisian, rekaman drag, retry, ACK yang ditahan, serta satu klik setelah ACK.
+
+Untuk menguji UI tanpa akun Vercel, jalankan `node tests/verification-ui.mjs`, lalu `node tests/verification-pointer.mjs` di terminal kedua. Tes memakai komponen produksi dan actor Chromium lokal. Tes memeriksa gerakan tanpa permintaan jaringan, puzzle gagal lalu retry pada layar 360 px, dan satu submit sintetis. Gunakan `FIXTURE_REMOTE=1 node --env-file=.env.local tests/verification-ui.mjs` untuk memakai gateway dan Sandbox Vercel.
+
+`node tests/official-puzzle.mjs` memeriksa ekspor gambar dari halaman resmi dengan semua permintaan selain GET/HEAD diblokir. Tes ini tidak menggeser puzzle atau mengirim formulir.
 
 Jangan kirim data uji ke pemerintah. Pemeriksaan halaman resmi hanya membuka formulir dan melihat puzzle. OCR dapat gagal pada gambar buram atau kecil; isian manual tetap tersedia. Fixture OCR tidak mengukur akurasi paspor nyata.

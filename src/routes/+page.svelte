@@ -86,7 +86,7 @@
     {:else if step===1}<TripStep bind:trip {range} count={selectedProfiles.length} {busy} back={()=>step=0} next={nextReview} />
     {:else}<ReviewStep profiles={selectedProfiles} {trip} {labels} {displayValue} {busy} {blocked} back={()=>step=1} {send} />{/if}
   {:else if screen === 'submission' && phase.kind !== 'idle'}
-    <VerificationPane {phase} input={(...args)=>desk.input(...args)} cancel={()=>cancel()} reconnect={()=>run(()=>desk.reconnect())} reconcile={openReconcile} checkUrl={CHECK_URL} />
+    <VerificationPane {phase} replay={(...args)=>desk.replay(...args)} cancel={()=>cancel()} reconnect={()=>run(()=>desk.reconnect())} reconcile={openReconcile} checkUrl={CHECK_URL} />
     <button class="text-link top-spaced" onclick={()=>screen='history'}>Lihat progres semua penumpang</button>
   {:else if screen === 'history' || screen === 'submission'}
     <div class="eyebrow">Tersimpan di perangkat ini</div><h1>Riwayat pengiriman</h1><p>Setiap catatan memakai salinan data saat Anda memilih Kirim.</p>

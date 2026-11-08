@@ -55,7 +55,7 @@ async function relay(sandbox, claim, action, body) {
   const text = await response.text();
   if (text.length > 2_100_000) fail(502, 'Tampilan sesi melebihi batas.');
   const state = JSON.parse(text);
-  const ownerGeneration = action === 'frame' ? state.ownerGeneration : state.generation;
+  const ownerGeneration = action === 'challenge' ? state.ownerGeneration : state.generation;
   if (ownerGeneration && (ownerGeneration !== claim.generation || state.digest !== claim.digest)) fail(409, 'Bukti pemilik sesi berubah.');
   return state;
 }
@@ -135,7 +135,7 @@ export async function createSession(raw, capability, fixture = null) {
   return { handle, ...await publish(sandbox, claim, state) };
 }
 export async function sessionAction(handle, capability, action, body) {
-  if (!['status','frame','input','ack','cancel'].includes(action)) fail(404, 'Tindakan tidak ditemukan.');
+  if (!['status','challenge','replay','ack','cancel'].includes(action)) fail(404, 'Tindakan tidak ditemukan.');
   const value = readHandle(handle, capability);
   let claim = await readClaim(value);
   const sandbox = await getWorker(claim);
@@ -170,6 +170,6 @@ export async function sessionAction(handle, capability, action, body) {
     }
     return stopWorker(sandbox, claim, await relay(sandbox, claim, 'ack', body));
   }
-  if (claim.phase !== 'open' && action === 'input') fail(409, 'Verifikasi sesi telah berakhir.');
+  if (claim.phase !== 'open' && action === 'replay') fail(409, 'Verifikasi sesi telah berakhir.');
   return relay(sandbox, claim, action, body);
 }
