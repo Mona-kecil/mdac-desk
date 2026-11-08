@@ -12,7 +12,7 @@
   import { createSubmissionDesk } from '#lib/submission/desk.js';
   const labels = { name:'Nama lengkap',passportNo:'Nomor paspor',birthDate:'Tanggal lahir',nationality:'Kewarganegaraan',birthPlace:'Negara kelahiran',sex:'Jenis kelamin',passportExpiry:'Berlaku hingga',email:'Email',phoneCountry:'Kode telepon',phone:'Telepon',arrival:'Tiba di Malaysia',departure:'Meninggalkan Malaysia',transportNo:'Penerbangan / kendaraan',travelMode:'Moda perjalanan',embarkation:'Negara keberangkatan',accommodationKind:'Penginapan',address1:'Alamat penginapan',address2:'Alamat tambahan',state:'Negeri / wilayah',city:'Kota',postcode:'Kode pos' };
   const optionKeys = {nationality:'nationality',birthPlace:'nationality',phoneCountry:'region',sex:'sex',travelMode:'trvlMode',embarkation:'nationality',accommodationKind:'accommodationStay',state:'accommodationState'};
-  let repository, desk, profiles = [], submissions = [], selected = [], trip = emptyTrip();
+  let repository, desk, profiles = [], submissions = [], selected = [], trip = { ...emptyTrip(), embarkation: 'IDN' };
   let screen = 'wizard', step = 0, phase = {kind:'idle'}, loading = true, busy = false;
   let errors = [], toast = '', modal = null, reviewReference = '', reconciliationReviewed = false;
   let restoreInput, persistent = null, clearText = '', range = {min:'',max:''};

@@ -7,7 +7,8 @@
   import { parseImport, CSV_TEMPLATE, MAX_FILE_BYTES, MAX_ROWS } from '../import/parse.js';
   import { readPassport } from '../import/ocr.js';
   export let repository, profiles, initial = null, initialMode = 'manual', labels, displayValue, saved, close;
-  let profile = initial ? { ...initial } : emptyProfile();
+  const newProfile = () => ({ ...emptyProfile(), nationality: 'IDN', birthPlace: 'IDN', phoneCountry: '62' });
+  let profile = initial ? { ...initial } : newProfile();
   let profileMode = initialMode, reviewed = false, errors = [], busy = false, toast = null;
   let importFile, importResult = null, mapping = {}, reviewedRows = [], importReviewed = false;
   let ocrProgress = '', ocrIssues = [], ocrText = '';
@@ -217,7 +218,7 @@
               ? progress
               : `${progress.status || "Membaca paspor"} ${Math.round((progress.progress || 0) * 100)}%`;
       });
-      profile = { ...emptyProfile(), ...result.profile };
+      profile = { ...newProfile(), ...Object.fromEntries(Object.entries(result.profile).filter(([, value]) => value)) };
       ocrIssues = result.issues;
       ocrText = result.text;
       reviewed = false;
