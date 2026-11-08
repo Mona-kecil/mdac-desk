@@ -10,6 +10,7 @@
   import { validateTrip, arrivalRange } from '#lib/domain/validate.js';
   import { createRepository } from '#lib/storage/repository.js';
   import { createSubmissionDesk } from '#lib/submission/desk.js';
+  import { groupTrips, tripPinsImage } from '#lib/export/trip-pins.js';
   const labels = { name:'Nama lengkap',passportNo:'Nomor paspor',birthDate:'Tanggal lahir',nationality:'Kewarganegaraan',birthPlace:'Negara kelahiran',sex:'Jenis kelamin',passportExpiry:'Berlaku hingga',email:'Email',phoneCountry:'Kode telepon',phone:'Telepon',arrival:'Tiba di Malaysia',departure:'Meninggalkan Malaysia',transportNo:'Penerbangan / kendaraan',travelMode:'Moda perjalanan',embarkation:'Negara keberangkatan',accommodationKind:'Penginapan',address1:'Alamat penginapan',address2:'Alamat tambahan',state:'Negeri / wilayah',city:'Kota',postcode:'Kode pos' };
   const optionKeys = {nationality:'nationality',birthPlace:'nationality',phoneCountry:'region',sex:'sex',travelMode:'trvlMode',embarkation:'nationality',accommodationKind:'accommodationStay',state:'accommodationState'};
   let repository, desk, profiles = [], submissions = [], selected = [], trip = { ...emptyTrip(), embarkation: 'IDN' };
@@ -17,6 +18,7 @@
   let errors = [], toast = '', modal = null, reviewReference = '', reconciliationReviewed = false;
   let restoreInput, persistent = null, clearText = '', range = {min:'',max:''};
   $: selectedProfiles = profiles.filter(item => selected.includes(item.id));
+  $: trips = groupTrips(submissions);
   $: blocked = submissions.some(item => ['filling','awaiting_verification','submitting','outcome_unknown'].includes(item.state));
   async function refresh() {
     if (!repository) return;
@@ -65,6 +67,7 @@
     await run(async () => { await repository.appendEvent(modal.item.id,{id:crypto.randomUUID(),attemptId:modal.item.id,type:'reconcile',at:new Date().toISOString(),reference:reviewReference.trim(),detail:'Pengguna memeriksa pendaftaran pada halaman Check Registration MDAC.'});modal=null;await refresh();screen='history'; });
   }
   function download(name,contents,type) {const url=URL.createObjectURL(new Blob([contents],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  async function exportTrip(group) { await run(async () => { const image = await tripPinsImage(group); download(image.name,image.blob,'image/png'); }); }
   async function restore(event) {
     const file=event.currentTarget.files?.[0];if(!file)return;
     await run(async()=>{if(file.size>32*1024*1024)throw Error('Cadangan maksimal 32 MB.');const result=await repository.restoreBackup(JSON.parse(await file.text()));await desk.initialize();await refresh();toast=`Cadangan digabung. ${result.profiles} profil dan ${result.submissions} pengiriman diproses.`;});event.target.value='';
@@ -89,15 +92,16 @@
     <VerificationPane {phase} replay={(...args)=>desk.replay(...args)} cancel={()=>cancel()} reconnect={()=>run(()=>desk.reconnect())} reconcile={openReconcile} checkUrl={CHECK_URL} />
     <button class="text-link top-spaced" onclick={()=>screen='history'}>Lihat progres semua penumpang</button>
   {:else if screen === 'history' || screen === 'submission'}
-    <div class="eyebrow">Tersimpan di perangkat ini</div><h1>Riwayat pengiriman</h1><p>Setiap catatan memakai salinan data saat Anda memilih Kirim.</p>
-    {#each submissions as item}<article class="history-card"><div class="split"><h2>{item.profileSnapshot.name}</h2><span class="badge">{stateLabels[item.state]}</span></div><p>Paspor {item.profileSnapshot.passportNo} · Tiba {item.tripSnapshot.arrival}</p><small>{dateTime(item.createdAt)}</small>
+    <h1>Riwayat pengiriman</h1>
+    {#each trips as group}<section class="trip-history"><div class="trip-history-heading"><h2>{group.trip.arrival} · {group.trip.transportNo}</h2><button onclick={()=>exportTrip(group)} disabled={busy}>Ekspor nama &amp; PIN</button></div>
+    {#each group.submissions as item}<article class="history-card"><div class="split"><h3>{item.profileSnapshot.name}</h3><span class="badge">{stateLabels[item.state]}</span></div><p>Paspor {item.profileSnapshot.passportNo}</p><small>{dateTime(item.createdAt)}</small>
     {#if item.state==='outcome_unknown' || item.state==='submitting'}<div class="notice warning">Hasil belum diketahui. Jangan kirim ulang sebelum memeriksa portal resmi.</div><a href={CHECK_URL} target="_blank" rel="noreferrer">Check Registration ↗</a><button class="primary" onclick={()=>openReconcile(item)}>Catat referensi</button>
     {:else if item.state==='queued'}<button class="primary" disabled={busy||blocked} onclick={()=>start(item)}>Lanjutkan pengajuan</button><button onclick={()=>cancel(item)} disabled={busy}>Batalkan</button>
     {:else if ['filling','awaiting_verification'].includes(item.state)}<button class="primary" onclick={()=>{screen='submission';void run(()=>desk.reconnect());}}>Buka verifikasi</button><button onclick={()=>cancel(item)}>Hentikan</button>
     {:else if ['blocked','cancelled'].includes(item.state) && item.transport==='web-v1' && !item.submittedAt}<button onclick={()=>retry(item)} disabled={busy||blocked}>Coba ulang pengajuan ini</button>{/if}
-    {#if item.receipt}<p>Referensi {item.receipt.reference} · Dikonfirmasi pengguna {dateTime(item.confirmedAt)}</p>{/if}
+    {#if item.receipt}<p>PIN {item.receipt.reference} · Dikonfirmasi pengguna {dateTime(item.confirmedAt)}</p>{/if}
     <details><summary>Data & bukti peristiwa</summary><dl class="snapshot-list">{#each PROFILE_FIELDS as key}<div><dt>{labels[key]}</dt><dd>{displayValue(key,item.profileSnapshot[key],item.profileSnapshot)}</dd></div>{/each}{#each TRIP_FIELDS as key}<div><dt>{labels[key]}</dt><dd>{displayValue(key,item.tripSnapshot[key],item.tripSnapshot)}</dd></div>{/each}</dl><ol class="event-list">{#each item.events as event}<li>{dateTime(event.at)} · {event.type}<p>{event.detail||''}</p></li>{/each}</ol></details>
-    {#if !['filling','awaiting_verification','submitting','outcome_unknown'].includes(item.state)}<button class="ghost danger" onclick={()=>modal={kind:'deleteSubmission',item}}>Hapus catatan lokal</button>{/if}</article>{:else}<div class="empty-note">Belum ada pengiriman.</div>{/each}
+    {#if !['filling','awaiting_verification','submitting','outcome_unknown'].includes(item.state)}<button class="ghost danger" onclick={()=>modal={kind:'deleteSubmission',item}}>Hapus catatan lokal</button>{/if}</article>{/each}</section>{:else}<div class="empty-note">Belum ada pengiriman.</div>{/each}
     <div class="wizard-actions"><button onclick={()=>{screen='wizard';step=0;}}>Siapkan perjalanan baru</button></div>
   {:else if screen === 'data'}
     <div class="eyebrow">Data & bantuan</div><h1>Simpan salinan data Anda</h1><p>Profil, OCR, dan riwayat berada di browser ini. Cadangan berisi data pribadi dalam teks terbuka. Simpan di tempat yang Anda kendalikan.</p>

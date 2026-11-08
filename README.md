@@ -16,6 +16,8 @@ Klik bukan bukti penerimaan. Hasil yang belum diketahui menahan rombongan dan ti
 
 Profil dan riwayat tersimpan di browser. Gunakan **Data & bantuan** untuk ekspor atau pemulihan cadangan. Cadangan JSON memuat data pribadi dalam teks terbuka. Menghapus data situs atau memakai browser lain memisahkan data lokal.
 
+Di **Riwayat**, pilih **Ekspor nama & PIN** pada perjalanan untuk mengunduh kartu PNG. Gambar dibuat di browser dan hanya memuat nama serta PIN yang Anda catat. PIN kosong ditandai **Belum dicatat**. Untuk memulihkan seluruh profil dan riwayat, gunakan cadangan JSON.
+
 Foto paspor tidak dikirim ke server. Hanya data teks yang ditinjau diproses dalam browser server sementara. Sesi memiliki batas 15 menit. Penanda pengajuan berupa hash tersimpan terpisah untuk mencegah retry yang belum jelas hasilnya. Lihat [batas data](docs/security.md).
 
 ## Pengembangan lokal
@@ -48,5 +50,7 @@ npm run test:remote
 Untuk menguji UI tanpa akun Vercel, jalankan `node tests/verification-ui.mjs`, lalu `node tests/verification-pointer.mjs` di terminal kedua. Tes memakai komponen produksi dan actor Chromium lokal. Tes memeriksa gerakan tanpa permintaan jaringan, puzzle gagal lalu retry pada layar 360 px, dan satu submit sintetis. Gunakan `FIXTURE_REMOTE=1 node --env-file=.env.local tests/verification-ui.mjs` untuk memakai gateway dan Sandbox Vercel.
 
 `node tests/official-puzzle.mjs` memeriksa ekspor gambar dari halaman resmi dengan semua permintaan selain GET/HEAD diblokir. Tes ini tidak menggeser puzzle atau mengirim formulir.
+
+Dengan `npm run dev -- --port 4173` berjalan, `node tests/trip-export.mjs` memeriksa pengelompokan perjalanan dan unduhan PNG di layar 360 px memakai data sintetis.
 
 Jangan kirim data uji ke pemerintah. Pemeriksaan halaman resmi hanya membuka formulir dan melihat puzzle. OCR dapat gagal pada gambar buram atau kecil; isian manual tetap tersedia. Fixture OCR tidak mengukur akurasi paspor nyata.
