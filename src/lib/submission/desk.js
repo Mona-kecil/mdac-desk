@@ -6,8 +6,6 @@ const activeStates = new Set(['filling', 'awaiting_verification', 'submitting', 
 const pick = (value, fields) => Object.fromEntries(fields.map(key => [key, value[key]]));
 export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
   let phase = { kind: 'idle' }, binding, attempt, timer, disposed = false, polling;
-  let inputSequence = 0, inputGeneration;
-  let inputCommands = [], inputDrain, inputRecovery = false;
   const acknowledged = new Set();
   const update = next => { phase = next; changed(next); };
   const records = () => repository.listSubmissions();
@@ -19,26 +17,23 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
     if (!response.ok) throw new Error(result.error || 'Sesi belum dapat dijangkau.');
     return result;
   };
-  const loadFrame = async () => {
-    const frame = await request('frame');
-    if (typeof frame.image !== 'string' || frame.image.length > 2_000_000 || !Number.isFinite(frame.width) || frame.width < 1 || frame.width > 1100 || !Number.isFinite(frame.height) || frame.height < 1 || frame.height > 850 || typeof frame.generation !== 'string' || !Number.isInteger(frame.inputSequence)) throw Error('Tampilan verifikasi tidak valid.');
-    if (inputGeneration !== frame.generation) {
-      inputGeneration = frame.generation;
-      inputSequence = frame.inputSequence;
-    } else inputSequence = Math.max(inputSequence, frame.inputSequence);
-    return { ...frame, image: `data:image/jpeg;base64,${frame.image}` };
+  const png = value => typeof value === 'string' && value.length <= 1_000_000 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+  const loadPuzzle = async () => {
+    const value = await request('challenge');
+    if (value.id === null) return null;
+    const { id, width, height, pieceWidth, track, ratio } = value;
+    if (typeof id !== 'string' || id.length > 200 || !png(value.background) || !png(value.piece) || ![width, height, pieceWidth, track, ratio].every(Number.isFinite) || !(width >= 41 && width <= 1100) || !(height >= 1 && height <= 850) || !(pieceWidth >= 1 && pieceWidth <= width) || !(track >= 1 && track <= width) || !(ratio > 0 && ratio <= 2)) throw Error('Puzzle verifikasi tidak valid.');
+    return { id, width, height, pieceWidth, track, ratio, background: `data:image/png;base64,${value.background}`, piece: `data:image/png;base64,${value.piece}` };
   };
   const ingest = async result => {
     if (!Array.isArray(result.events) || result.events.length > 1000 || result.generation !== binding.generation) throw Error('Bukti sesi tidak valid.');
-    let frame = phase.frame;
     for (const event of result.events) {
       if (!eventTypes.has(event.type) || event.attemptId !== attempt.id || !isInstant(event.at) || typeof event.id !== 'string') throw Error('Bukti sesi tidak valid.');
       await repository.appendEvent(attempt.id, event);
       if (event.type === 'outcome_unknown') {
         attempt = (await records()).find(item => item.id === attempt.id);
         clearTimeout(timer);
-        update({ kind: 'paused', attempt, frame, closed: result.closed });
-        try { frame = await loadFrame(); } catch {}
+        update({ kind: 'paused', attempt, closed: result.closed });
       }
       if (!acknowledged.has(event.id)) {
         await request('ack', { eventId: event.id });
@@ -59,11 +54,13 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
     }
     attempt = current;
     if (current.state === 'awaiting_verification' && !result.closed) {
-      frame = await loadFrame();
-      update({ kind: 'verification', attempt: current, frame, expiresAt: result.expiresAt });
+      if (!Object.hasOwn(result, 'challenge')) throw Error('Sesi ini memakai verifikasi lama. Hentikan pengiriman ini, lalu coba ulang.');
+      const known = phase.kind === 'verification' ? phase : {};
+      const puzzle = !result.challenge ? null : known.puzzle?.id === result.challenge ? known.puzzle : await loadPuzzle();
+      update({ kind: 'verification', attempt: current, puzzle, verification: known.puzzle?.id === puzzle?.id ? known.verification || 'ready' : 'ready', expiresAt: result.expiresAt });
     } else if (['blocked', 'cancelled', 'outcome_unknown', 'confirmed'].includes(current.state)) {
       clearTimeout(timer);
-      update({ kind: 'paused', attempt: current, frame, closed: result.closed });
+      update({ kind: 'paused', attempt: current, closed: result.closed });
     } else update({ kind: 'connecting', attempt: current, expiresAt: result.expiresAt });
     await changed(phase);
     if (!disposed && !result.closed && !['blocked', 'cancelled', 'outcome_unknown', 'confirmed'].includes(current.state)) timer = setTimeout(poll, 1400);
@@ -95,27 +92,6 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
         await ingest(result);
       } else await poll();
     } catch (error) { update({ kind: 'connecting', attempt, error: error.message }); throw error; }
-  };
-  const drainInputs = async () => {
-    while (inputCommands.length || inputRecovery) {
-      if (inputRecovery) {
-        await polling;
-        if (!await poll()) return;
-        inputRecovery = false;
-      }
-      if (!inputCommands.length) break;
-      const { type, x, y, generation } = inputCommands.shift();
-      if (phase.kind !== 'verification' || phase.frame.generation !== generation) continue;
-      try {
-        const sequence = inputSequence + 1;
-        await request('input', { type, x, y, generation, sequence });
-        inputSequence = sequence;
-        if (type === 'up') void poll();
-      } catch (error) {
-        update({ ...phase, error: error.message });
-        inputRecovery = true;
-      }
-    }
   };
   return {
     async initialize() {
@@ -162,13 +138,21 @@ export function createSubmissionDesk({ repository, changed, fetcher = fetch }) {
       await repository.bindSession(record.id, true);
       await start((await records()).find(item => item.id === record.id));
     },
-    input(type, x, y, generation) {
-      const command = { type, x, y, generation };
-      const pending = inputCommands.at(-1);
-      if (['move', 'up'].includes(type) && pending?.type === 'move' && pending.generation === generation) inputCommands[inputCommands.length - 1] = command;
-      else inputCommands.push(command);
-      inputDrain ??= drainInputs().finally(() => { inputDrain = null; });
-      return inputDrain;
+    async replay(id, path) {
+      if (phase.kind !== 'verification' || phase.puzzle?.id !== id || phase.verification !== 'ready') return;
+      update({ ...phase, verification: 'checking', error: undefined });
+      clearTimeout(timer);
+      let outcome;
+      try {
+        ({ outcome } = await request('replay', { challenge: id, path }));
+        if (!['verified', 'failed', 'stale'].includes(outcome)) throw Error('Hasil verifikasi tidak valid.');
+      } catch (error) {
+        outcome = undefined;
+        if (phase.kind === 'verification' && phase.puzzle?.id === id) update({ ...phase, verification: 'ready', error: error.message });
+      }
+      if (phase.kind === 'verification' && phase.puzzle?.id === id && outcome) update({ ...phase, verification: outcome === 'verified' ? 'verified' : 'failed' });
+      clearTimeout(timer);
+      if (!disposed) timer = setTimeout(poll, outcome === 'verified' ? 0 : 1200);
     },
     dispose() { disposed = true; clearTimeout(timer); },
   };

@@ -5,14 +5,14 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'none'; img-src 'self' data:">
 <title>MDAC Desk · Formulir uji lokal</title>
 <style>
-body{font:16px system-ui;margin:0;background:#f6f4ed;color:#15283a}main{max-width:980px;margin:40px auto;padding:24px}h1{font-size:32px}p{line-height:1.6}form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;background:white;padding:24px;border:1px solid #bcc8c5;border-radius:12px}label{display:grid;gap:6px;font-size:13px}input,select,button{font:inherit;padding:10px;border:1px solid #9aaead;border-radius:6px;min-width:0}button,#submit{cursor:pointer;background:#12685d;color:white}#captcha,.wide{grid-column:1/-1}.sliderContainer{position:relative;height:56px;background:#e5ebe8;max-width:400px;margin-top:16px;touch-action:none;border:2px solid #7a918e;border-radius:8px}.slider{width:48px;height:48px;position:absolute;left:2px;top:2px;background:#12685d;color:white;display:grid;place-content:center;cursor:grab;touch-action:none;border-radius:4px}.target{position:absolute;left:290px;width:48px;height:48px;top:2px;border:2px dashed #12685d;box-sizing:border-box}.sliderContainer_success{background:#c3e5d0}#events{white-space:pre-wrap;background:#142838;color:#e4efec;padding:20px;border-radius:8px;font-size:13px}#submit{width:180px}@media(max-width:700px){form{grid-template-columns:1fr}main{margin:0;padding:18px}}
+body{font:16px system-ui;margin:0;background:#f6f4ed;color:#15283a}main{max-width:980px;margin:40px auto;padding:24px}h1{font-size:32px}p{line-height:1.6}form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;background:white;padding:24px;border:1px solid #bcc8c5;border-radius:12px}label{display:grid;gap:6px;font-size:13px}input,select,button{font:inherit;padding:10px;border:1px solid #9aaead;border-radius:6px;min-width:0}button,#submit{cursor:pointer;background:#12685d;color:white}#captcha,.wide{grid-column:1/-1}.block{position:absolute;left:0;top:0}.sliderContainer{position:relative;height:40px;line-height:40px;text-align:center;background:#e5ebe8;margin-top:10px}.sliderMask{position:absolute;left:0;top:0;height:40px;background:#c3e5d0}.slider{position:absolute;top:0;left:0;width:40px;height:40px;background:#12685d;cursor:grab}.sliderContainer_success .slider{background:#2a9d5c}.sliderContainer_fail .slider{background:#b33}#events{white-space:pre-wrap;background:#142838;color:#e4efec;padding:20px;border-radius:8px;font-size:13px}#submit{width:180px}@media(max-width:700px){form{grid-template-columns:1fr}main{margin:0;padding:18px}}
 </style>
 </head>
 <body><main>
 <p>MDAC DESK / UJI LOKAL</p><h1>Uji pengisian dan puzzle</h1>
-<p>Halaman sintetis ini memakai adapter produksi. Tidak ada permintaan ke situs pemerintah. Tekan Isi data uji, lalu geser kotak hijau ke kotak putus-putus. Submit sudah aktif sejak awal dan tidak cukup untuk memicu klik.</p>
+<p>Halaman sintetis ini memakai adapter produksi. Tidak ada permintaan ke situs pemerintah. Puzzle meniru struktur dan aturan geser puzzle resmi. Submit sudah aktif sejak awal dan tidak cukup untuk memicu klik.</p>
 <p id="status" role="status">Belum dimulai.</p>
-<form id="fixtureForm"><div id="captcha"><strong>Puzzle uji lokal</strong><p>Geser kotak hijau ke sasaran di kanan.</p><div class="sliderContainer"><div class="target"></div><div class="slider" role="img" aria-label="Kotak yang dapat digeser">→</div></div></div><input id="submit" type="submit" value="Submit uji lokal"></form>
+<form id="fixtureForm"><div class="wide"><div id="captcha"></div></div><input id="submit" type="submit" value="Submit uji lokal"></form>
 <h2>Jurnal peristiwa</h2><pre id="events">Belum ada peristiwa.</pre>
 <script type="module">
 
@@ -23,7 +23,7 @@ for (const id of fields) {
   const label = document.createElement('label'); label.textContent = id;
   const element = document.createElement(id in selects ? 'select' : 'input'); element.id = id; element.name = id;
   if (id in selects) element.innerHTML = '<option value="">Pilih</option>' + selects[id].map(value => `<option value="${value}">${value}</option>`).join('');
-  label.append(element); form.insertBefore(label, document.getElementById('captcha'));
+  label.append(element); form.insertBefore(label, document.getElementById('captcha').parentElement);
 }
 for (const id of ['nationality','pob']) document.getElementById(id).addEventListener('change', () => setTimeout(() => {
   document.getElementById('region').innerHTML = '<option value="60">60 default</option><option value="62">62 Indonesia</option>';
@@ -40,9 +40,57 @@ const history = [];
 const emit = async (type, detail) => {history.push({type,detail}); document.getElementById('events').textContent = JSON.stringify(history,null,2); document.getElementById('status').textContent = detail || type;};
 let nativeClicks = 0;
 form.addEventListener('submit', event => {event.preventDefault(); nativeClicks++; document.body.dataset.nativeClicks = String(nativeClicks);});
-const slider = document.querySelector('.slider'); const track = document.querySelector('.sliderContainer'); let drag;
-slider.addEventListener('pointerdown', event => {if(!event.isTrusted)return; track.classList.remove('sliderContainer_success'); drag = event.clientX; slider.setPointerCapture(event.pointerId);});
-slider.addEventListener('pointermove', event => {if(drag == null || !event.isTrusted)return; slider.style.left = `${Math.max(2, Math.min(330,event.clientX-drag+2))}px`;});
-slider.addEventListener('pointerup', event => {if(drag == null || !event.isTrusted)return; if(Math.abs(event.clientX-drag-288)<18) track.classList.add('sliderContainer_success'); drag = null;});
+const W = 320, H = 155, L = 63, root = document.getElementById('captcha');
+root.style.position = 'relative'; root.style.width = `${W}px`;
+const canvas = Object.assign(document.createElement('canvas'), { width: W - 2, height: H });
+const block = Object.assign(document.createElement('canvas'), { width: W - 2, height: H, className: 'block' });
+const container = Object.assign(document.createElement('div'), { className: 'sliderContainer' });
+const mask = Object.assign(document.createElement('div'), { className: 'sliderMask' });
+const slider = Object.assign(document.createElement('div'), { className: 'slider' });
+const text = Object.assign(document.createElement('span'), { className: 'sliderText', textContent: 'Slide the Puzzle' });
+mask.append(slider); container.append(mask, text); root.append(canvas, block, container);
+let answer, top, trail = [], origin = null, challenge = 0, verdicts = [];
+const shape = (ctx, x, y) => { ctx.beginPath(); ctx.rect(x, y, 42, 42); };
+function draw() {
+  block.width = W - 2;
+  canvas.getContext('2d').clearRect(0, 0, W, H);
+  setTimeout(() => {
+    answer = 20 + Math.round(Math.random() * (W - L - 70)) + 30; top = 20 + Math.round(Math.random() * (H - 70));
+    const scene = Object.assign(document.createElement('canvas'), { width: W - 2, height: H }), ctx = scene.getContext('2d');
+    const hue = Math.round(Math.random() * 360);
+    const gradient = ctx.createLinearGradient(0, 0, W, H); gradient.addColorStop(0, `hsl(${hue} 60% 55%)`); gradient.addColorStop(1, `hsl(${(hue + 120) % 360} 60% 35%)`);
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, W, H);
+    for (let n = 0; n < 14; n++) { ctx.fillStyle = `hsl(${(hue + n * 40) % 360} 70% ${30 + n * 3}%)`; ctx.beginPath(); ctx.arc(Math.random() * W, Math.random() * H, 8 + Math.random() * 30, 0, Math.PI * 2); ctx.fill(); }
+    const back = canvas.getContext('2d'); back.drawImage(scene, 0, 0);
+    back.fillStyle = 'rgba(255,255,255,0.75)'; shape(back, answer, top); back.fill();
+    const piece = block.getContext('2d'); piece.drawImage(scene, 0, 0);
+    const pixels = piece.getImageData(answer - 3, top - 1, L, 44);
+    block.width = L; block.getContext('2d').putImageData(pixels, 0, top);
+    challenge++; root.dataset.challenge = String(challenge);
+  }, 150);
+}
+function reset() { container.classList.remove('sliderContainer_success', 'sliderContainer_fail'); slider.style.left = 0; block.style.left = 0; mask.style.width = 0; trail = []; draw(); }
+slider.addEventListener('mousedown', event => { origin = { x: event.clientX, y: event.clientY }; });
+document.addEventListener('mousemove', event => {
+  if (!origin) return;
+  const moveX = event.clientX - origin.x, moveY = event.clientY - origin.y;
+  if (moveX < 0 || moveX + 40 > W) return;
+  slider.style.left = `${moveX - 1}px`; block.style.left = `${(W - 60) / (W - 40) * moveX}px`; mask.style.width = `${moveX + 4}px`;
+  trail.push(Math.round(moveY));
+});
+document.addEventListener('mouseup', event => {
+  if (!origin) return;
+  const start = origin; origin = null;
+  if (event.clientX === start.x) return;
+  const average = trail.reduce((a, b) => a + b, 0) / trail.length;
+  const varied = trail.some(value => value !== average);
+  const left = parseInt(block.style.left);
+  const verified = Math.abs(left - answer) < 5 && varied;
+  verdicts.push({ challenge, left, answer, trail: trail.length, varied, verified });
+  if (verified) container.classList.add('sliderContainer_success');
+  else { container.classList.add('sliderContainer_fail'); setTimeout(reset, 1000); }
+});
+window.fixturePuzzle = () => ({ challenge, answer, ratio: (W - 60) / (W - 40), left: parseInt(block.style.left || 0), verdicts });
+draw();
 </script>
 </main></body></html>

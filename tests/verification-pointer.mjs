@@ -1,67 +1,56 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from '@playwright/test';
 
 const base = process.env.FIXTURE_URL || 'http://127.0.0.1:4183';
 const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
-const proof = { simulationOnly: true, errors: [] };
+const proof = { simulationOnly: true, errors: [], checks: [] };
 page.on('pageerror', error => proof.errors.push(error.message));
 const remote = async () => (await (await fetch(`${base}/__verification/proof`)).json());
-const image = page.locator('.verification-frame img');
-async function drag(hold = false) {
-  const state = (await remote()).state;
-  const box = await image.boundingBox();
-  const scale = box.width / state.captcha.width;
-  const x = box.x + (state.slider.x - state.captcha.x + 20) * scale;
-  const y = box.y + (state.slider.y - state.captcha.y + 20) * scale;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  for (let step = 1; step <= 29; step++) {
-    await page.waitForTimeout(60);
-    await page.mouse.move(x + 288 * scale * step / 29, y);
-    if (hold && step === 14) await page.waitForTimeout(4000);
+const knob = page.getByRole('button', { name: 'Geser potongan puzzle' });
+const check = (name, value) => { assert.ok(value, name); proof.checks.push(name); };
+async function drag(dx, hold = false) {
+  const box = await knob.boundingBox();
+  const width = await page.locator('.slider-puzzle').evaluate(node => node.getBoundingClientRect().width);
+  const scale = width / 320, x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const before = (await remote()).calls.filter(call => call.action === 'replay').length;
+  await page.mouse.move(x, y); await page.mouse.down();
+  for (let step = 1; step <= 20; step++) {
+    await page.mouse.move(x + dx * scale * step / 20, y + Math.sin(step) * 3 * scale);
+    await page.waitForTimeout(20);
+    if (hold && step === 12) {
+      await page.waitForTimeout(1800);
+      const moved = await page.locator('.slider-puzzle-piece').evaluate(node => parseFloat(node.style.left));
+      check('piece moves locally while button is held', moved > 0);
+      check('no drag requests before release', (await remote()).calls.filter(call => call.action === 'replay').length === before);
+    }
   }
-  const released = Date.now();
   await page.mouse.up();
-  return released;
 }
 try {
   await page.goto(`${base}/tests/verification-ui/index.html`);
-  await image.waitFor({ timeout: 90_000 });
-  await image.evaluate(img => img.decode());
-  const initial = await image.getAttribute('src');
-  const firstRelease = await drag();
-  await page.waitForFunction(() => document.querySelector('[data-testid="fixture-status"]').textContent.includes('Generation 2.'), undefined, { timeout: 60_000 });
-  await image.evaluate(img => img.decode());
-  proof.firstReleaseToNewChallengeDisplayMs = Date.now() - firstRelease;
-  assert.notEqual(await image.getAttribute('src'), initial);
-  assert.equal((await remote()).state.clicks, 0);
-  await page.screenshot({ path: '/tmp/mdac-redesign/verification-retry.png' });
-  const secondRelease = await drag(true);
+  await knob.waitFor({ timeout: 90_000 });
+  await page.locator('.slider-puzzle-image img').first().evaluate(img => img.decode());
+  const first = await page.locator('.slider-puzzle-image img').first().getAttribute('src');
+  await drag(10);
+  await page.waitForFunction(initial => document.querySelector('.slider-puzzle-image img')?.src !== initial, first, { timeout: 30_000 });
+  await page.waitForFunction(() => document.querySelector('.slider-puzzle-knob')?.getAttribute('aria-disabled') === 'false');
+  check('failed puzzle resets and becomes usable', (await remote()).state.puzzle.challenge > 1);
+  await page.setViewportSize({ width: 360, height: 800 });
+  const state = (await remote()).state;
+  await drag(state.puzzle.answer / state.puzzle.ratio, true);
   await page.waitForFunction(() => document.querySelector('[data-testid="fixture-status"]').textContent.includes('outcome_unknown'), undefined, { timeout: 60_000 });
-  proof.secondReleaseToOutcomeDisplayMs = Date.now() - secondRelease;
   const details = await remote();
-  assert.equal(details.state.clicks, 1);
-  assert.equal(details.state.challenge, '2');
-  const secondDown = details.state.pointerEvents.findLastIndex(event => event.type === 'pointerdown' && event.challenge === '2');
-  const trustedSecond = details.state.pointerEvents.slice(secondDown).filter(event => ['pointerdown', 'pointermove', 'pointerup'].includes(event.type));
-  assert.equal(trustedSecond[0].type, 'pointerdown');
-  assert.equal(trustedSecond.some(event => event.type === 'pointermove' && event.trusted), true);
-  assert.equal(trustedSecond.at(-1).type, 'pointerup');
-  assert.equal(trustedSecond.every(event => event.trusted), true);
-  const up = details.calls.filter(call => call.action === 'input' && call.type === 'up' && call.status === 200).at(-1);
-  assert.ok(up);
-  proof.secondReleaseToAcceptedUpMs = up.ended - secondRelease;
-  proof.acceptedInputs = details.calls.filter(call => call.action === 'input' && call.status === 200).length;
-  proof.rejectedInputs = details.calls.filter(call => call.action === 'input' && call.status !== 200).length;
-  proof.trustedSecondGesture = trustedSecond.map(event => event.type);
-  proof.nativeClicks = details.state.clicks;
-  proof.calls = details.calls;
+  check('mobile retry passes official-style offset and trail checks', details.state.puzzle.verdicts.at(-1).verified);
+  check('one native submit after local commit and permit', details.state.clicks === 1);
+  check('one batch for each completed drag', details.calls.filter(call => call.action === 'replay').length === 2);
+  check('no legacy move or screenshot calls', !details.calls.some(call => ['input', 'frame'].includes(call.action)));
   assert.deepEqual(proof.errors, []);
-  await page.screenshot({ path: '/tmp/mdac-redesign/verification-success.png' });
-  console.log(JSON.stringify({ ...proof, calls: undefined }, null, 2));
+  await mkdir('.audit', { recursive: true });
+  await page.screenshot({ path: '.audit/local-puzzle-success.png' });
+  console.log(JSON.stringify(proof, null, 2));
 } finally {
-  await writeFile('/tmp/mdac-redesign/verification-pointer-proof.json', JSON.stringify(proof, null, 2));
+  await writeFile('.audit/local-puzzle-ui-proof.json', JSON.stringify(proof, null, 2));
   await browser.close();
 }

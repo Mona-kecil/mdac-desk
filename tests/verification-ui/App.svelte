@@ -20,7 +20,7 @@
       };
       const fetcher = (url, options) => {
         const action = url.endsWith('submission-sessions') ? 'create' : url.split('/').at(-1);
-        if (action === 'input') sent++;
+        if (action === 'replay') sent++;
         return fetch(`/__verification/${action}`, options);
       };
       desk = createSubmissionDesk({ repository, fetcher, changed: value => { phase = value; } });
@@ -31,10 +31,10 @@
 </script>
 
 <main class="wizard-wrap">
-  <div class="notice warning">Simulation only. The first synthetic puzzle changes after 80 pixels. Release, wait for puzzle 2, then drag the green box to the dashed target. Input transport adds {latency ?? '…'} ms per request.</div>
-  <p data-testid="fixture-status">Generation {phase.frame?.generation?.split('.').at(-1) ?? '…'}. Sent {sent} input requests. State {phase.attempt?.state ?? 'starting'}.</p>
+  <div class="notice warning">Synthetic form. No government requests. Replay delay {latency ?? '…'} ms.</div>
+  <p data-testid="fixture-status">Puzzle {phase.puzzle?.id ?? '…'}. Sent {sent} replays. State {phase.attempt?.state ?? 'starting'}.</p>
   {#if error}<p role="alert">{error}</p>{/if}
   <section class="wizard-panel">
-    <VerificationPane {phase} input={(...args) => desk.input(...args)} cancel={() => desk.cancel()} reconnect={() => desk.reconnect()} reconcile={() => {}} checkUrl="#simulation" />
+    <VerificationPane {phase} replay={(...args) => desk.replay(...args)} cancel={() => desk.cancel()} reconnect={() => desk.reconnect()} reconcile={() => {}} checkUrl="#simulation" />
   </section>
 </main>

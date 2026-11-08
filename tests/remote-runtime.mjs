@@ -3,7 +3,9 @@ import { createServer } from 'vite';
 import { Sandbox } from '@vercel/sandbox';
 import { get, del } from '@vercel/blob';
 import { randomUUID, randomBytes, createHmac } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+
+await mkdir('.audit', { recursive: true });
 
 const vite = await createServer({ configFile: false, server: { middlewareMode: true }, plugins: [{
   name: 'fixture-private-env',
@@ -39,19 +41,16 @@ try {
   const replay=await state();check('exact event replay before ACK',JSON.stringify(current.events)===JSON.stringify(replay.events));
   await assert.rejects(()=>gateway.sessionAction(handle,randomBytes(32).toString('base64url'),'status'));proof.checks.push('cross-owner refused');
   await assert.rejects(()=>gateway.createSession({...raw,submission:{...raw.submission,profileSnapshot:{...raw.submission.profileSnapshot,name:'CHANGED NAME'}}},capability,fixture));proof.checks.push('changed digest refused');
-  const frame=await command('frame');
-  await writeFile('/tmp/mdac-redesign/remote-fixture.jpg',Buffer.from(frame.image,'base64'));
-  await assert.rejects(()=>command('input',{type:'down',x:10,y:10,generation:'stale',sequence:1}));proof.checks.push('stale frame refused');
-  let sequence=0;
-  const x=details.slider.x-details.captcha.x+20,y=details.slider.y-details.captcha.y+20;
-  // Same transform used by the image at 300 CSS pixels on a 360px mobile screen.
-  const scale=300/frame.width;
-  const pointer=async(type,dx)=>command('input',{type,x:((x+dx)*scale)/scale,y:(y*scale)/scale,generation:frame.generation,sequence:++sequence});
-  await pointer('down',0);await pointer('move',100);await pointer('move',200);await pointer('move',288);await pointer('up',288);
+  const puzzle = await command('challenge');
+  const path = [[0,0,0], [40,2,100], [100,-2,200], [Math.round(details.puzzle.answer/details.puzzle.ratio),1,350]];
+  check('stale puzzle refuses replay',(await command('replay',{challenge:'stale',path})).outcome==='stale');
+  await assert.rejects(()=>command('replay',{challenge:puzzle.id,path:[[0,0,0],[1,2,9000]]}));proof.checks.push('invalid path refused');
+  const result = await command('replay',{challenge:puzzle.id,path});
+  check('recorded drag passes fixture verification',result.outcome==='verified');
+  check('repeated replay returns the same verdict',(await command('replay',{challenge:puzzle.id,path})).outcome==='verified');
   for(let n=0;n<20;n++){current=await state();if(current.events.some(event=>event.type==='click_intent'))break;await new Promise(resolve=>setTimeout(resolve,300));}
   const intent=current.events.find(event=>event.type==='click_intent');assert.ok(intent);
   details=await fixtureState();check('withheld local ACK has zero native clicks',details.clicks===0);
-  check('mobile pointer mapping reaches real fixture gesture',Boolean(intent));
   check('reload replays identical stable intent',JSON.stringify((await state()).events)===JSON.stringify(current.events));
   for(const event of current.events.filter(event=>event.type!=='click_intent'))await command('ack',{eventId:event.id});
   await command('ack',{eventId:intent.id});
@@ -68,6 +67,6 @@ try {
   await assert.rejects(()=>gateway.createSession({...raw,generation:randomUUID()},randomBytes(32).toString('base64url'),fixture));proof.checks.push('spent fingerprint blocks new owner');
 } finally {
   if(binding){try{const box=await Sandbox.get({name:binding.vmName,resume:false});if(box.status==='running')await box.stop();await box.delete();}catch{} const current=await get(binding.key,{access:'private',useCache:false});if(current)await del(binding.key,{ifMatch:current.blob.etag});}
-  await writeFile('/tmp/mdac-redesign/remote-runtime-proof.json',JSON.stringify(proof,null,2));
+  await writeFile('.audit/remote-runtime-proof.json',JSON.stringify(proof,null,2));
   await vite.close();
 }

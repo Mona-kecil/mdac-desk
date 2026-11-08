@@ -1,63 +1,14 @@
-import { it, expect, vi } from 'vitest';
+import { it, expect } from 'vitest';
 import { createSubmissionDesk } from '../src/lib/submission/desk.js';
 import { reduceAttempt } from '../src/lib/domain/state.js';
 
-it('starts each traveller pointer at one and retains the sequence on reconnect', async () => {
-  const records = ['a', 'b'].map(id => ({ id, state: 'queued', events: [], profileSnapshot: {}, tripSnapshot: {}, transport: 'web-v1' }));
-  const bindings = new Map(), sessions = new Map(), inputs = [];
-  let phase;
-  const repository = {
-    listSubmissions: async () => structuredClone(records),
-    sessionBinding: async id => bindings.get(id),
-    bindSession: async id => {
-      if (!bindings.has(id)) bindings.set(id, { generation: `gen-${id}`, capability: 'test' });
-      return bindings.get(id);
-    },
-    saveSessionHandle: async (id, generation, handle) => { bindings.get(id).handle = handle; },
-    appendEvent: async (id, event) => {
-      const index = records.findIndex(record => record.id === id);
-      records[index] = reduceAttempt(records[index], event);
-      return structuredClone(records[index]);
-    },
-  };
-  const response = value => ({ ok: true, json: async () => value });
-  const fetcher = async (url, options) => {
-    const action = url.split('/').at(-1), body = options.body && JSON.parse(options.body);
-    if (action === 'submission-sessions') {
-      const id = body.submission.id;
-      const events = ['filling', 'awaiting_verification'].map((type, index) => ({ id: `${id}-${type}`, attemptId: id, type, at: new Date(Date.now() + index).toISOString() }));
-      const state = { generation: body.generation, events, closed: false };
-      sessions.set(id, state);
-      return response({ handle: id, ...state });
-    }
-    const id = url.split('/').at(-2);
-    if (action === 'frame') return response({ image: 'AA==', width: 400, height: 200, generation: `gen-${id}.1`, inputSequence: 0 });
-    if (action === 'input') { inputs.push({ id, sequence: body.sequence }); return response({ sequence: body.sequence }); }
-    return response(sessions.get(id));
-  };
-  const desk = createSubmissionDesk({ repository, fetcher, changed: next => { phase = next; } });
-  try {
-    await desk.start(records[0]);
-    await desk.input('down', 10, 10, phase.frame.generation);
-    await desk.input('move', 20, 10, phase.frame.generation);
-    await desk.reconnect();
-    await desk.input('up', 20, 10, phase.frame.generation);
-    records[0].state = 'confirmed';
-    await desk.start(records[1]);
-    await desk.input('down', 10, 10, phase.frame.generation);
-    expect(inputs).toEqual([{ id: 'a', sequence: 1 }, { id: 'a', sequence: 2 }, { id: 'a', sequence: 3 }, { id: 'b', sequence: 1 }]);
-  } finally { desk.dispose(); }
-});
-
-function verificationFixture({ delay = 0, delayOutcomeAck = false, loseMoveResponse = false } = {}) {
+const path = [[0, 0, 0], [40, 2, 120], [100, -1, 260]];
+function fixture({ legacy = false } = {}) {
   let record = { id: 'drag', state: 'queued', events: [], profileSnapshot: {}, tripSnapshot: {}, transport: 'web-v1' };
   const binding = { generation: 'owner', capability: 'test' };
   const events = ['filling', 'awaiting_verification'].map(type => ({ id: type, attemptId: record.id, type, at: new Date().toISOString() }));
-  const inputs = [], accepted = [], acknowledgements = [];
-  const outcomeAck = Promise.withResolvers(), ackReached = Promise.withResolvers();
-  const moveReached = Promise.withResolvers(), lostResponse = Promise.withResolvers();
-  const frameReached = Promise.withResolvers(), frameRelease = Promise.withResolvers();
-  let phase, generation = 'owner.1', sequence = 0, pointerDown = false, holdFrame = false;
+  let phase, challenge = 'puzzle-1', outcome = 'failed', replayGate, ackGate, badPuzzle = false;
+  const calls = [];
   const repository = {
     listSubmissions: async () => [structuredClone(record)],
     sessionBinding: async () => binding,
@@ -65,133 +16,114 @@ function verificationFixture({ delay = 0, delayOutcomeAck = false, loseMoveRespo
     saveSessionHandle: async (_id, _generation, handle) => { binding.handle = handle; },
     appendEvent: async (_id, event) => { record = reduceAttempt(record, event); },
   };
-  const response = (value, ok = true) => ({ ok, json: async () => value });
   const fetcher = async (url, options) => {
     const action = url.split('/').at(-1), body = options.body && JSON.parse(options.body);
-    if (action === 'frame') {
-      const frame = { image: 'AA==', width: 400, height: 200, generation, inputSequence: sequence };
-      if (holdFrame) { holdFrame = false; frameReached.resolve(); await frameRelease.promise; }
-      return response(frame);
+    calls.push({ action, body });
+    let value;
+    if (action === 'challenge') value = { id: challenge, width: badPuzzle ? Infinity : 320, height: 155, pieceWidth: 63, track: 280, ratio: 260 / 280, background: 'AA==', piece: 'AA==' };
+    else if (action === 'replay') { if (replayGate) await replayGate.promise; if (outcome instanceof Error) throw outcome; value = { outcome }; }
+    else {
+      if (action === 'ack' && body.eventId === 'outcome_unknown' && ackGate) { ackGate.reached.resolve(); await ackGate.release.promise; }
+      value = { handle: 'drag', generation: binding.generation, events, closed: false, challenge };
+      if (legacy) delete value.challenge;
     }
-    if (action === 'input') {
-      inputs.push(body);
-      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-      if (body.generation !== generation || body.sequence !== sequence + 1) return response({ error: 'Input stale or outside frame' }, false);
-      if (body.type === 'down' ? pointerDown : !pointerDown) return response({ error: 'Pointer order refused' }, false);
-      sequence = body.sequence;
-      if (body.type === 'down') pointerDown = true;
-      if (body.type === 'up') pointerDown = false;
-      accepted.push(body);
-      if (body.type === 'move' && loseMoveResponse) {
-        loseMoveResponse = false;
-        moveReached.resolve();
-        await lostResponse.promise;
-        throw Error('Network response lost after remote acceptance');
-      }
-      return response({ sequence });
-    }
-    if (action === 'ack') {
-      acknowledgements.push(body.eventId);
-      if (delayOutcomeAck && body.eventId === 'outcome_unknown') { ackReached.resolve(); await outcomeAck.promise; }
-    }
-    return response({ handle: 'drag', generation: binding.generation, events, closed: false });
+    return { ok: true, json: async () => value };
   };
   const desk = createSubmissionDesk({ repository, fetcher, changed: value => { phase = value; } });
   return {
-    desk, inputs, accepted, acknowledgements, phase: () => phase, replace: () => { generation = 'owner.2'; pointerDown = false; },
-    outcome: () => events.push(...['click_intent', 'outcome_unknown'].map(type => ({ id: type, attemptId: record.id, type, at: new Date().toISOString() }))),
-    ackReached: ackReached.promise, releaseAck: outcomeAck.resolve,
-    moveReached: moveReached.promise, releaseLostResponse: lostResponse.resolve,
-    holdFrame: () => { holdFrame = true; }, frameReached: frameReached.promise, releaseFrame: frameRelease.resolve,
+    desk, calls, phase: () => phase, replace: () => { challenge = 'puzzle-2'; },
+    outcome: value => { outcome = value; }, holdReplay: () => (replayGate = Promise.withResolvers()),
+    badPuzzle: () => { badPuzzle = true; },
+    holdOutcome: () => {
+      events.push(...['click_intent', 'outcome_unknown'].map(type => ({ id: type, attemptId: record.id, type, at: new Date().toISOString() })));
+      return (ackGate = { reached: Promise.withResolvers(), release: Promise.withResolvers() });
+    },
   };
 }
 
-it('releases a drag within three input round trips after a 60 ms pointer stream', async () => {
-  vi.useFakeTimers();
-  const fixture = verificationFixture({ delay: 240 });
+it('sends the recorded drag once and keeps checking through concurrent status polls', async () => {
+  const f = fixture();
   try {
-    await fixture.desk.start({ id: 'drag' });
-    const generation = fixture.phase().frame.generation;
-    void fixture.desk.input('down', 10, 10, generation);
-    for (let x = 20; x <= 300; x += 10) {
-      await vi.advanceTimersByTimeAsync(60);
-      void fixture.desk.input('move', x, 10, generation);
-    }
-    void fixture.desk.input('up', 300, 10, generation);
-    await vi.advanceTimersByTimeAsync(720);
-    expect(fixture.accepted.at(-1)).toMatchObject({ type: 'up', x: 300, sequence: fixture.accepted.length });
-    expect(fixture.accepted.length).toBeLessThanOrEqual(11);
-  } finally { fixture.desk.dispose(); vi.useRealTimers(); }
+    await f.desk.start({ id: 'drag' });
+    const gate = f.holdReplay();
+    const replay = f.desk.replay('puzzle-1', path);
+    await f.desk.reconnect();
+    expect(f.phase().verification).toBe('checking');
+    await f.desk.replay('puzzle-1', path);
+    expect(f.calls.filter(call => call.action === 'replay')).toEqual([{ action: 'replay', body: { challenge: 'puzzle-1', path } }]);
+    gate.resolve(); await replay;
+    expect(f.phase().verification).toBe('failed');
+  } finally { f.desk.dispose(); }
 });
 
-it.each([false, true])('keeps the queued release after an accepted move loses its response, with an existing poll %s', async polling => {
-  const fixture = verificationFixture({ loseMoveResponse: true });
-  let currentPoll, move, up;
+it('loads a replacement after failure and accepts its completed drag', async () => {
+  const f = fixture();
   try {
-    await fixture.desk.start({ id: 'drag' });
-    const generation = fixture.phase().frame.generation;
-    await fixture.desk.input('down', 10, 10, generation);
-    if (polling) {
-      fixture.holdFrame();
-      currentPoll = fixture.desk.reconnect();
-      await fixture.frameReached;
-    }
-    move = fixture.desk.input('move', 100, 10, generation);
-    await fixture.moveReached;
-    up = fixture.desk.input('up', 150, 10, generation);
-    fixture.releaseLostResponse();
-    if (polling) await vi.waitFor(() => expect(fixture.phase().error).toContain('Network response lost'));
-    fixture.releaseFrame();
-    await Promise.all([move, up, currentPoll]);
-    await fixture.desk.input('down', 10, 10, generation);
-    expect(fixture.accepted.map(({ type, x, sequence }) => ({ type, x, sequence }))).toEqual([
-      { type: 'down', x: 10, sequence: 1 },
-      { type: 'move', x: 100, sequence: 2 },
-      { type: 'up', x: 150, sequence: 3 },
-      { type: 'down', x: 10, sequence: 4 },
-    ]);
-  } finally {
-    fixture.releaseLostResponse(); fixture.releaseFrame();
-    await Promise.all([move, up, currentPoll]);
-    fixture.desk.dispose();
-  }
+    await f.desk.start({ id: 'drag' });
+    await f.desk.replay('puzzle-1', path); await f.desk.reconnect();
+    expect(f.phase().verification).toBe('failed');
+    f.replace(); await f.desk.reconnect();
+    expect(f.phase()).toMatchObject({ puzzle: { id: 'puzzle-2' }, verification: 'ready' });
+    f.outcome('verified'); await f.desk.replay('puzzle-2', path);
+    expect(f.phase().verification).toBe('verified');
+    await f.desk.replay('puzzle-2', path);
+    expect(f.calls.filter(call => call.action === 'replay')).toHaveLength(2);
+  } finally { f.desk.dispose(); }
 });
 
-it('shows the recorded outcome while the remote close acknowledgement is pending', async () => {
-  const fixture = verificationFixture({ delayOutcomeAck: true });
-  let reconnect;
+it('does not apply a previous puzzle result to a replacement', async () => {
+  const f = fixture();
   try {
-    await fixture.desk.start({ id: 'drag' });
-    fixture.outcome();
-    reconnect = fixture.desk.reconnect();
-    await fixture.ackReached;
-    expect(fixture.phase()).toMatchObject({ kind: 'paused', attempt: { state: 'outcome_unknown' } });
-  } finally { fixture.releaseAck(); await reconnect; fixture.desk.dispose(); }
+    await f.desk.start({ id: 'drag' });
+    const gate = f.holdReplay();
+    const replay = f.desk.replay('puzzle-1', path);
+    f.replace(); await f.desk.reconnect();
+    gate.resolve(); await replay;
+    expect(f.phase()).toMatchObject({ puzzle: { id: 'puzzle-2' }, verification: 'ready' });
+  } finally { f.desk.dispose(); }
 });
 
-it('loads subsequent verification frames without repeating completed event acknowledgements', async () => {
-  const fixture = verificationFixture();
+it('shows transport failure and permits a retry without changing the human path', async () => {
+  const f = fixture();
   try {
-    await fixture.desk.start({ id: 'drag' });
-    await fixture.desk.reconnect();
-    expect(fixture.acknowledgements).toEqual(['filling', 'awaiting_verification']);
-    expect(fixture.phase().frame.generation).toBe('owner.1');
-  } finally { fixture.desk.dispose(); }
+    await f.desk.start({ id: 'drag' });
+    f.outcome(Error('Connection lost')); await f.desk.replay('puzzle-1', path);
+    expect(f.phase()).toMatchObject({ verification: 'ready', error: 'Connection lost' });
+    f.outcome('verified'); await f.desk.replay('puzzle-1', path);
+    expect(f.phase().verification).toBe('verified');
+    expect(f.calls.filter(call => call.action === 'replay').map(call => call.body.path)).toEqual([path, path]);
+  } finally { f.desk.dispose(); }
 });
 
-it('starts the replacement puzzle at the last accepted sequence after stale input', async () => {
-  const fixture = verificationFixture();
+it('caches unchanged puzzle images and completed event acknowledgements', async () => {
+  const f = fixture();
   try {
-    await fixture.desk.start({ id: 'drag' });
-    await fixture.desk.input('down', 10, 10, fixture.phase().frame.generation);
-    fixture.replace();
-    await fixture.desk.input('move', 100, 10, fixture.phase().frame.generation);
-    await fixture.desk.reconnect();
-    await fixture.desk.input('down', 10, 10, fixture.phase().frame.generation);
-    expect(fixture.accepted.map(({ type, generation, sequence }) => ({ type, generation, sequence }))).toEqual([
-      { type: 'down', generation: 'owner.1', sequence: 1 },
-      { type: 'down', generation: 'owner.2', sequence: 2 },
-    ]);
-    expect(fixture.phase().error).toBeUndefined();
-  } finally { fixture.desk.dispose(); }
+    await f.desk.start({ id: 'drag' }); await f.desk.reconnect();
+    expect(f.calls.filter(call => call.action === 'challenge')).toHaveLength(1);
+    expect(f.calls.filter(call => call.action === 'ack').map(call => call.body.eventId)).toEqual(['filling', 'awaiting_verification']);
+  } finally { f.desk.dispose(); }
+});
+
+it('shows the committed outcome before worker teardown acknowledgement finishes', async () => {
+  const f = fixture(); let reconnect, gate;
+  try {
+    await f.desk.start({ id: 'drag' }); gate = f.holdOutcome();
+    reconnect = f.desk.reconnect(); await gate.reached.promise;
+    expect(f.phase()).toMatchObject({ kind: 'paused', attempt: { state: 'outcome_unknown' } });
+  } finally { gate?.release.resolve(); await reconnect; f.desk.dispose(); }
+});
+
+it('rejects invalid puzzle dimensions before showing the puzzle', async () => {
+  const f = fixture();
+  try {
+    f.badPuzzle(); await expect(f.desk.start({ id: 'drag' })).rejects.toThrow('Puzzle verifikasi tidak valid.');
+  } finally { f.desk.dispose(); }
+});
+
+it('explains how to leave an existing screenshot-based session', async () => {
+  const f = fixture({ legacy: true });
+  try {
+    await expect(f.desk.start({ id: 'drag' })).rejects.toThrow('Hentikan pengiriman ini, lalu coba ulang.');
+    expect(f.phase().error).toContain('verifikasi lama');
+  } finally { f.desk.dispose(); }
 });
